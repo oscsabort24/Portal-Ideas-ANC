@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal de Ideas — Grupo ANC</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ───── HEADER ───── -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="brand-logomark">
+        <img
+          src="/assets/logo.png"
+          alt="Grupo ANC"
+          class="brand-logo-img"
+          onload="console.log('[logo] cargado:', this.src)"
+          onerror="console.warn('[logo] no encontrado:', this.src); if(this.src.includes('.png')){this.src='/assets/logo.jpg';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"
+        >
+        <span class="brand-logo-fallback">ANC</span>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">Grupo ANC</span>
+        <span class="brand-sub">Portal de Ideas con IA</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="badge-pilot"><span class="status-dot"></span>Piloto interno</span>
+      <button class="btn-reset" id="resetBtn" title="Nueva conversación">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+          <path d="M3 3v5h5"/>
+        </svg>
+        Nueva idea
+      </button>
+    </div>
+  </header>
+
+  <!-- ───── MAIN LAYOUT ───── -->
+  <main class="app-main">
+
+    <!-- PROGRESS SIDEBAR -->
+    <aside class="progress-sidebar">
+      <div class="sidebar-header">
+        <h3>Entrevista de ideas</h3>
+        <p class="sidebar-hint">El agente cubre los bloques en orden natural</p>
+      </div>
+
+      <div class="blocks-list" id="blocksList">
+
+        <div class="block-item" id="block-1" data-status="pending">
+          <div class="block-indicator">
+            <div class="block-icon">
+              <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+          </div>
+          <div class="block-info">
+            <span class="block-number">01</span>
+            <span class="block-name">Problema y Alcance</span>
+            <span class="block-tag required-tag">Requerido</span>
+          </div>
+        </div>
+
+        <div class="block-item" id="block-2" data-status="pending">
+          <div class="block-indicator">
+            <div class="block-icon">
+              <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+          </div>
+          <div class="block-info">
+            <span class="block-number">02</span>
+            <span class="block-name">Objetivo Medible</span>
+            <span class="block-tag required-tag">Requerido</span>
+          </div>
+        </div>
+
+        <div class="block-item" id="block-3" data-status="pending">
+          <div class="block-indicator">
+            <div class="block-icon">
+              <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+          </div>
+          <div class="block-info">
+            <span class="block-number">03</span>
+            <span class="block-name">Beneficios Esperados</span>
+            <span class="block-tag required-tag">Requerido</span>
+          </div>
+        </div>
+
+        <div class="block-item" id="block-4" data-status="pending">
+          <div class="block-indicator">
+            <div class="block-icon">
+              <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+          </div>
+          <div class="block-info">
+            <span class="block-number">04</span>
+            <span class="block-name">Entregables Principales</span>
+          </div>
+        </div>
+
+        <div class="block-item" id="block-5" data-status="pending">
+          <div class="block-indicator">
+            <div class="block-icon">
+              <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+          </div>
+          <div class="block-info">
+            <span class="block-number">05</span>
+            <span class="block-name">Riesgos y Mitigación</span>
+          </div>
+        </div>
+
+      </div><!-- /blocks-list -->
+
+      <!-- PROGRESS SUMMARY -->
+      <div class="progress-summary" id="progressSummary">
+        <div class="progress-label-row">
+          <span class="progress-label-text" id="progressText">0 de 5 bloques completados</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="charter-ready-banner" id="charterReadyBanner" style="display:none">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span>Información completa</span>
+        </div>
+        <button class="btn-open-selector" id="openSelectorBtn" style="display:none" onclick="openDocSelector()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Ver selector de documentos
+        </button>
+        <button class="btn-view-charter" id="viewDocsBtn" style="display:none" onclick="openDocsModal()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          Ver documentos generados
+        </button>
+      </div>
+    </aside>
+
+    <!-- CHAT AREA -->
+    <div class="chat-area welcome-active">
+      <!-- ── WELCOME SCREEN ── -->
+      <div class="welcome-screen" id="welcomeScreen">
+        <div class="welcome-content">
+
+          <div class="welcome-logo-wrap">
+            <img src="/assets/logo.png" alt="Grupo ANC" class="welcome-logo-img"
+                 onerror="if(this.src.includes('.png')){this.src='/assets/logo.jpg';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}">
+            <span class="welcome-logo-fallback">ANC</span>
+          </div>
+
+          <h1 class="welcome-title">Portal de Ideas con IA</h1>
+          <p class="welcome-tagline">Transformá una idea en un proyecto documentado en minutos</p>
+          <p class="welcome-desc">
+            Contanos tu idea de mejora o automatización. El asistente te hace las preguntas correctas y genera automáticamente el Project Charter para que tu idea llegue al equipo de Transformación Digital lista para evaluarse.
+          </p>
+
+          <div class="welcome-steps">
+            <div class="step-card">
+              <div class="step-icon-wrap">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>
+              </div>
+              <div class="step-label">Describí tu idea</div>
+            </div>
+            <div class="step-arrow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <div class="step-card">
+              <div class="step-icon-wrap">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </div>
+              <div class="step-label">El agente profundiza</div>
+            </div>
+            <div class="step-arrow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <div class="step-card">
+              <div class="step-icon-wrap">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 15 11 17 15 13"/></svg>
+              </div>
+              <div class="step-label">Se genera el documento</div>
+            </div>
+          </div>
+
+          <button class="btn-start" onclick="startInterview()">
+            Registrar mi idea
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+
+          <div class="welcome-footer">
+            <span class="welcome-footer-badge">Piloto interno · Transformación Digital</span>
+            <span class="welcome-version">v0.1 · junio 2026</span>
+          </div>
+
+        </div>
+      </div><!-- /welcome-screen -->
+
+      <div class="messages-container" id="messagesContainer">
+        <!-- messages go here -->
+      </div>
+
+      <!-- Option chips (rendered by JS) -->
+      <div class="options-area" id="optionsArea"></div>
+
+      <!-- Input -->
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea
+            id="userInput"
+            placeholder="Describe tu idea o responde la pregunta del agente…"
+            rows="1"
+            maxlength="2000"
+          ></textarea>
+          <button class="btn-send" id="sendBtn" aria-label="Enviar mensaje" onclick="sendMessage()" title="Enviar (Enter)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+        <div class="skip-row" id="skipRow" style="display:none">
+          <button class="btn-skip" onclick="skipField()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            No tengo este dato
+          </button>
+        </div>
+        <p class="input-hint">Enter para enviar · Shift+Enter para nueva línea</p>
+      </div>
+    </div>
+
+  </main><!-- /app-main -->
+
+  <!-- ───── CHARTER OVERLAY ───── -->
+  <div class="charter-overlay" id="charterOverlay" style="display:none" aria-hidden="true" onclick="overlayClick(event)" role="dialog" aria-modal="true" aria-labelledby="charterModalTitle">
+    <h2 id="charterModalTitle" class="sr-only">Documentos generados</h2>
+    <div class="charter-modal" id="charterModal">
+      <div class="modal-header">
+        <div class="doc-tabs" id="docTabs"></div>
+        <div class="modal-toolbar" id="modalToolbar">
+          <button class="toolbar-btn" onclick="printCurrentDoc()">🖨️ Imprimir</button>
+          <button id="copyCharterBtn" class="toolbar-btn" onclick="copyCharter()">📋 Copiar</button>
+          <button class="toolbar-btn" onclick="closeDocsModal()">✕ Cerrar</button>
+        </div>
+      </div>
+      <div class="doc-tab-content" id="docTabContent"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
