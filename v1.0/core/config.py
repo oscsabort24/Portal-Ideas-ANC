@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     db_user: str = ""
     db_password: str = ""
     db_driver: str = "ODBC Driver 17 for SQL Server"
+    db_trust_server_certificate: str = "yes"
 
     claude_stub_mode: bool = True
     claude_api_key: str = ""
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
             f"mssql+pyodbc://{self.db_user}:{self.db_password}"
             f"@{self.db_server}:{self.db_port}/{self.db_name}"
             f"?driver={driver_encoded}"
+            f"&TrustServerCertificate={self.db_trust_server_certificate}"
         )
 
 
