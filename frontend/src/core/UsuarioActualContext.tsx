@@ -2,10 +2,11 @@ import { createContext, useContext, type ReactNode } from 'react'
 import type { UsuarioBasico } from './types'
 
 // Usuario fijo mientras no exista login (ver ideas/router.py: autor_id hardcodeado en 1).
-const USUARIO_ACTUAL: UsuarioBasico = {
+// Rol admin para poder seguir probando editar/eliminar (usuarios/dependencies.py: requerir_admin).
+export const USUARIO_ACTUAL: UsuarioBasico = {
   id: 1,
   nombre: 'Oscar Saborío',
-  rol: 'colaborador',
+  rol: 'admin',
 }
 
 const UsuarioActualContext = createContext<UsuarioBasico>(USUARIO_ACTUAL)

@@ -257,6 +257,29 @@ a { color: inherit; text-decoration: none; }
 .btn-primary:hover:not(:disabled) { background: var(--primary-light); }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 
+.btn-secundario {
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px; font-weight: 700;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+}
+.btn-secundario:hover:not(:disabled) { background: var(--border-light); }
+
+.btn-small {
+  font-size: 12px; font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-faint);
+  color: var(--primary);
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.btn-small:hover:not(:disabled) { background: var(--border-light); }
+.btn-small.peligro { background: var(--error-bg); color: var(--error); }
+.btn-small.exito { background: var(--success-bg); color: var(--success); }
+
 /* ─────────────────────────────────────────────
    CHAT / ENTREVISTA (arquitectura portada del prototipo)
 ───────────────────────────────────────────── */
@@ -383,3 +406,212 @@ a { color: inherit; text-decoration: none; }
   font-size: 13.5px;
   font-weight: 600;
 }
+
+/* ─────────────────────────────────────────────
+   TABS (usuarios/)
+───────────────────────────────────────────── */
+.tabs-row {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border-light);
+  margin-bottom: 20px;
+}
+
+.tab-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: var(--transition);
+}
+.tab-button:hover { color: var(--text); background: rgba(0,0,0,.03); }
+.tab-button.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+.tab-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.nota-temporal {
+  font-size: 12.5px;
+  color: var(--partial);
+  background: var(--partial-bg);
+  border: 1px solid rgba(180,83,9,.2);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  flex: 1;
+  min-width: 240px;
+}
+
+/* ─────────────────────────────────────────────
+   FORMULARIOS (usuarios/)
+───────────────────────────────────────────── */
+.form-card {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.form-card-inline {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 640px) { .form-row { grid-template-columns: 1fr; } }
+
+.form-field-grow { flex: 1; min-width: 220px; margin-bottom: 0; }
+
+select.form-input { background: var(--surface); cursor: pointer; }
+
+.form-error { color: var(--error); font-size: 13px; margin-bottom: 12px; }
+
+/* ─────────────────────────────────────────────
+   FILTROS DE PERSONAS
+───────────────────────────────────────────── */
+.filtros-personas { margin-bottom: 16px; }
+
+/* ─────────────────────────────────────────────
+   LISTA DE PERSONAS
+───────────────────────────────────────────── */
+.tabla-personas {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.persona-card {
+  display: grid;
+  grid-template-columns: 36px minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(130px, 1fr) minmax(120px, 1fr) 90px 190px;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  box-shadow: var(--shadow-sm);
+}
+@media (max-width: 1100px) {
+  .persona-card { grid-template-columns: 36px 1fr; }
+}
+
+.persona-card-icon {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--primary-faint);
+  color: var(--primary);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.persona-card-info { min-width: 0; }
+.persona-card-nombre { font-size: 14px; font-weight: 600; color: var(--text); }
+.persona-card-correo { font-size: 12px; color: var(--text-light); }
+
+.persona-card-meta {
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+  color: var(--text);
+  min-width: 0;
+}
+
+.persona-card-estado { display: flex; }
+
+.persona-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.persona-meta-label {
+  font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-light);
+  margin-bottom: 2px;
+}
+
+.rol-badge {
+  display: inline-block;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-faint);
+  padding: 2px 9px;
+  border-radius: 20px;
+  width: fit-content;
+}
+
+.activo-badge {
+  font-size: 11px; font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  width: fit-content;
+}
+.activo-badge.activo { background: var(--success-bg); color: var(--success); }
+.activo-badge.inactivo { background: var(--error-bg); color: var(--error); }
+
+/* ─────────────────────────────────────────────
+   LISTAS SIMPLES (departamentos, CAB)
+───────────────────────────────────────────── */
+.lista-simple {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item-simple {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.item-simple-icon { color: var(--primary); flex-shrink: 0; }
+.item-simple-secundario { margin-left: auto; font-size: 12px; color: var(--text-light); }
+.item-simple-secundario + .item-simple-actions { margin-left: 0; }
+.item-simple-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.item-simple-edit-input {
+  flex: 1;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+}
+.item-simple-edit-input:focus { border-color: var(--primary); }
+
+.cab-grupo { margin-bottom: 24px; }
+.cab-grupo-titulo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--primary-faint);
+}
+.cab-vacio { font-size: 13px; color: var(--text-light); font-style: italic; }

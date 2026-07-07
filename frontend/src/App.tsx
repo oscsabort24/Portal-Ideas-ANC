@@ -3,10 +3,7 @@ import AppLayout from './layout/AppLayout'
 import FormularioNuevaIdea from './ideas/components/FormularioNuevaIdea'
 import ChatEntrevista from './ideas/components/ChatEntrevista'
 import MisIdeas from './ideas/components/MisIdeas'
-
-function UsuariosPlaceholder() {
-  return <h1 className="page-title">Usuarios (pendiente de construir)</h1>
-}
+import UsuariosView from './usuarios/components/UsuariosView'
 
 export default function App() {
   return (
@@ -16,7 +13,7 @@ export default function App() {
         <Route path="/ideas" element={<MisIdeas />} />
         <Route path="/ideas/nueva" element={<FormularioNuevaIdea />} />
         <Route path="/ideas/:id" element={<ChatEntrevista />} />
-        <Route path="/usuarios" element={<UsuariosPlaceholder />} />
+        <Route path="/usuarios" element={<UsuariosView />} />
       </Route>
     </Routes>
   )
