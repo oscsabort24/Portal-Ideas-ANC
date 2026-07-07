@@ -11,7 +11,8 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from core.config import settings  # noqa: E402
 from core.database import Base  # noqa: E402
-from usuarios import models  # noqa: E402,F401 — registra los modelos en Base.metadata
+from usuarios import models as usuarios_models  # noqa: E402,F401 — registra los modelos en Base.metadata
+from ideas import models as ideas_models  # noqa: E402,F401 — registra los modelos en Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

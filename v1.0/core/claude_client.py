@@ -20,9 +20,24 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
     )
 
 
+TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3
+
+
 def _respuesta_stub(mensajes: list[dict], system_prompt: str) -> dict:
+    turnos_usuario = sum(1 for m in mensajes if m.get("role") == "usuario")
+    entrevista_completa = turnos_usuario >= TURNOS_USUARIO_PARA_COMPLETAR_STUB
+
+    if entrevista_completa:
+        mensaje = "[STUB] Entrevista simulada completa — la idea tiene suficiente detalle."
+    else:
+        mensaje = (
+            "[STUB] Respuesta simulada — dame un ejemplo más concreto "
+            f"(turno {turnos_usuario} de {TURNOS_USUARIO_PARA_COMPLETAR_STUB})."
+        )
+
     return {
-        "message": "[STUB] Respuesta simulada — la integración real con Claude API aún no está activa.",
+        "message": mensaje,
+        "entrevista_completa": entrevista_completa,
         "options": None,
         "raw": None,
     }
