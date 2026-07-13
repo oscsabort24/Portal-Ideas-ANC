@@ -6,10 +6,11 @@ import type { UsuarioBasico } from './types'
 export const USUARIO_ACTUAL: UsuarioBasico = {
   id: 1,
   nombre: 'Oscar Saborío',
+  correo: 'oscar.prueba@anc-prueba.com',
   rol: 'admin',
 }
 
-const UsuarioActualContext = createContext<UsuarioBasico>(USUARIO_ACTUAL)
+export const UsuarioActualContext = createContext<UsuarioBasico>(USUARIO_ACTUAL)
 
 export function UsuarioActualProvider({ children }: { children: ReactNode }) {
   return (
