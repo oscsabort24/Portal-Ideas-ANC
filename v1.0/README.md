@@ -74,3 +74,41 @@ creados todavía.
 docker compose down          # detiene el contenedor, conserva los datos
 docker compose down -v       # detiene y borra también el volumen de datos
 ```
+
+## Login con Microsoft Entra ID (MSAL) — pendiente de IT
+
+El andamiaje de login con Microsoft ya está en el código (frontend con
+MSAL, backend con `core/auth.py`), pero **no está activo** porque faltan
+credenciales reales. Mientras no lleguen, la app sigue funcionando con
+el usuario simulado de siempre (`frontend/src/core/UsuarioActualContext.tsx`)
+y la verificación de rol admin sigue siendo la temporal por header
+`X-Usuario-Id` (`usuarios/dependencies.py`).
+
+### Qué falta pedirle a IT (Arnoldo)
+
+Registrar una app en Microsoft Entra ID (Azure AD) para este proyecto y
+compartir:
+
+1. **Tenant ID** — identificador del directorio de Grupo ANC en Azure AD.
+2. **Client ID** (Application ID) — de la app registrada para este portal.
+3. **Client Secret** — solo necesario si en el futuro el backend valida
+   tokens directamente contra Azure AD (hoy `core/auth.py` está sin
+   implementar, así que esto puede pedirse después).
+4. Confirmar el **redirect URI** permitido (hoy pensado como la URL raíz
+   del frontend, ej. `http://localhost:5173/` en desarrollo).
+
+### Dónde van esas credenciales una vez que lleguen
+
+- Frontend (`frontend/.env`, nunca comitear):
+  ```
+  VITE_AZURE_CLIENT_ID=<Client ID>
+  VITE_AZURE_TENANT_ID=<Tenant ID>
+  ```
+  En cuanto estas dos variables tengan valor, el botón "Iniciar sesión
+  con Microsoft" aparece automáticamente en el header y el login real
+  con MSAL queda activo (`frontend/src/core/authConfig.ts` y
+  `AuthProvider.tsx`).
+- Backend: implementar `validar_token_azure` en `core/auth.py` (hoy
+  lanza `NotImplementedError` a propósito) y conectar `Client Secret`
+  cuando se decida validar tokens en el servidor en vez de confiar en
+  el frontend.
