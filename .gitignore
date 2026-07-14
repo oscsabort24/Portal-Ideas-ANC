@@ -1,4 +1,5 @@
 .env
+.env.docker
 node_modules/
 *.log
 service-account-key.json
@@ -9,3 +10,4 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+v1.0/uploads/

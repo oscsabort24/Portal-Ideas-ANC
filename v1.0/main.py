@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from criterios.router import router as criterios_router
 from ideas.router import router as ideas_router
 from usuarios.router import router as usuarios_router
 
@@ -16,6 +17,7 @@ app.add_middleware(
 
 app.include_router(usuarios_router)
 app.include_router(ideas_router)
+app.include_router(criterios_router)
 
 # Routers pendientes a medida que se construyan los módulos:
 # from revision.router import router as revision_router

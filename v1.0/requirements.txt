@@ -11,3 +11,9 @@ email-validator==2.3.0
 # Validación de tokens de Microsoft Entra ID — agregado como andamiaje.
 # La implementación real (core/auth.py) está pendiente de credenciales de Azure AD.
 python-jose[cryptography]==3.3.0
+
+# Hashing del PIN personal de admin (criterios/seguridad.py)
+bcrypt==4.2.1
+
+# python-multipart: requerido por FastAPI para leer UploadFile/Form (criterios/router.py)
+python-multipart==0.0.20
