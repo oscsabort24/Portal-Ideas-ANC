@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, EmailStr
 
-from usuarios.models import RolUsuario, TipoCAB
+from usuarios.models import CompaniaUsuario, PaisUsuario, RolUsuario, TipoCAB
 
 
 class DepartamentoBase(BaseModel):
@@ -20,18 +20,48 @@ class DepartamentoOut(DepartamentoBase):
     id: int
 
 
+class PuestoBase(BaseModel):
+    nombre: str
+    departamento_id: int
+
+
+class PuestoCreate(PuestoBase):
+    pass
+
+
+class PuestoUpdate(BaseModel):
+    nombre: str | None = None
+    departamento_id: int | None = None
+
+
+class PuestoUnicoUpdate(BaseModel):
+    es_unico_por_pais: bool
+
+
+class PuestoOut(PuestoBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    es_unico_por_pais: bool
+
+
 class UsuarioBase(BaseModel):
     nombre: str
     correo: EmailStr
     rol: RolUsuario = RolUsuario.colaborador
+    pais: PaisUsuario
+    compania: CompaniaUsuario
     departamento_id: int | None = None
+    puesto_id: int | None = None
     reporta_a_id: int | None = None
 
 
 class UsuarioCreate(BaseModel):
     nombre: str
     correo: EmailStr
+    pais: PaisUsuario
+    compania: CompaniaUsuario
     departamento_id: int | None = None
+    puesto_id: int
     reporta_a_id: int | None = None
 
 
@@ -39,7 +69,10 @@ class UsuarioUpdate(BaseModel):
     nombre: str | None = None
     correo: EmailStr | None = None
     rol: RolUsuario | None = None
+    pais: PaisUsuario | None = None
+    compania: CompaniaUsuario | None = None
     departamento_id: int | None = None
+    puesto_id: int | None = None
     reporta_a_id: int | None = None
     activo: bool | None = None
 

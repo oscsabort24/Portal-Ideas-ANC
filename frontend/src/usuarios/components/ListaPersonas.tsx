@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FiPlus, FiUser } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
-import { actualizarUsuario, listarDepartamentos, listarUsuarios } from '../api'
-import { ETIQUETA_ROL, type Departamento, type Usuario } from '../types'
+import { actualizarUsuario, listarDepartamentos, listarPuestos, listarUsuarios } from '../api'
+import { ETIQUETA_ROL, type Departamento, type Puesto, type Usuario } from '../types'
 import FormularioPersona from './FormularioPersona'
 
 function normalizar(texto: string): string {
@@ -20,6 +20,7 @@ export default function ListaPersonas() {
   const esAdmin = usuarioActual.rol === 'admin'
   const [personas, setPersonas] = useState<Usuario[]>([])
   const [departamentos, setDepartamentos] = useState<Departamento[]>([])
+  const [puestos, setPuestos] = useState<Puesto[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mostrarFormulario, setMostrarFormulario] = useState(false)
@@ -28,10 +29,11 @@ export default function ListaPersonas() {
   const [departamentoFiltro, setDepartamentoFiltro] = useState('')
 
   useEffect(() => {
-    Promise.all([listarUsuarios(), listarDepartamentos()])
-      .then(([usuarios, deps]) => {
+    Promise.all([listarUsuarios(), listarDepartamentos(), listarPuestos()])
+      .then(([usuarios, deps, puestosCargados]) => {
         setPersonas(usuarios)
         setDepartamentos(deps)
+        setPuestos(puestosCargados)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar las personas'))
       .finally(() => setCargando(false))
@@ -102,7 +104,12 @@ export default function ListaPersonas() {
       </div>
 
       {mostrarFormulario && (
-        <FormularioPersona departamentos={departamentos} personas={personas} onCreada={handleCreada} />
+        <FormularioPersona
+          departamentos={departamentos}
+          puestos={puestos}
+          personas={personas}
+          onCreada={handleCreada}
+        />
       )}
 
       {error && <p className="form-error">{error}</p>}
@@ -145,6 +152,7 @@ export default function ListaPersonas() {
                 modo="editar"
                 personaEditando={p}
                 departamentos={departamentos}
+                puestos={puestos}
                 personas={personas}
                 onEditada={handleEditada}
                 onCancelar={() => setEditandoId(null)}

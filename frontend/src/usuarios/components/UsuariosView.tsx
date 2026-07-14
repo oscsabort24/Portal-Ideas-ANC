@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { FiAward, FiBriefcase, FiUsers } from 'react-icons/fi'
+import { FiAward, FiBriefcase, FiUsers, FiTag } from 'react-icons/fi'
 import ListaPersonas from './ListaPersonas'
 import ListaDepartamentos from './ListaDepartamentos'
+import ListaPuestos from './ListaPuestos'
 import ListaMiembrosCAB from './ListaMiembrosCAB'
 
-type Tab = 'personas' | 'departamentos' | 'cab'
+type Tab = 'personas' | 'departamentos' | 'puestos' | 'cab'
 
 const TABS: { id: Tab; label: string; icon: typeof FiUsers }[] = [
   { id: 'personas', label: 'Personas', icon: FiUsers },
   { id: 'departamentos', label: 'Departamentos', icon: FiBriefcase },
+  { id: 'puestos', label: 'Puestos', icon: FiTag },
   { id: 'cab', label: 'Comité (CAB)', icon: FiAward },
 ]
 
@@ -34,6 +36,7 @@ export default function UsuariosView() {
       <div className="tab-content">
         {tab === 'personas' && <ListaPersonas />}
         {tab === 'departamentos' && <ListaDepartamentos />}
+        {tab === 'puestos' && <ListaPuestos />}
         {tab === 'cab' && <ListaMiembrosCAB />}
       </div>
     </div>

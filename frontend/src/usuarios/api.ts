@@ -1,5 +1,13 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from '../core/api'
-import type { Departamento, MiembroCAB, MiembroCABDetalle, Usuario, UsuarioCreate, UsuarioUpdate } from './types'
+import type {
+  Departamento,
+  MiembroCAB,
+  MiembroCABDetalle,
+  Puesto,
+  Usuario,
+  UsuarioCreate,
+  UsuarioUpdate,
+} from './types'
 
 export function listarUsuarios(): Promise<Usuario[]> {
   return apiGet<Usuario[]>('/usuarios')
@@ -31,6 +39,29 @@ export function actualizarDepartamento(id: number, cambios: { nombre: string }):
 
 export function eliminarDepartamento(id: number): Promise<void> {
   return apiDelete(`/usuarios/departamentos/${id}`)
+}
+
+export function listarPuestos(): Promise<Puesto[]> {
+  return apiGet<Puesto[]>('/usuarios/puestos/')
+}
+
+export function crearPuesto(payload: { nombre: string; departamento_id: number }): Promise<Puesto> {
+  return apiPost<Puesto>('/usuarios/puestos/', payload)
+}
+
+export function actualizarPuesto(
+  id: number,
+  cambios: { nombre?: string; departamento_id?: number }
+): Promise<Puesto> {
+  return apiPatch<Puesto>(`/usuarios/puestos/${id}`, cambios)
+}
+
+export function actualizarPuestoUnico(id: number, esUnicoPorPais: boolean): Promise<Puesto> {
+  return apiPatch<Puesto>(`/usuarios/puestos/${id}/unico`, { es_unico_por_pais: esUnicoPorPais })
+}
+
+export function eliminarPuesto(id: number): Promise<void> {
+  return apiDelete(`/usuarios/puestos/${id}`)
 }
 
 export function listarMiembrosCab(): Promise<MiembroCABDetalle[]> {
