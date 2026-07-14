@@ -8,6 +8,7 @@ from core.claude_client import generar_respuesta
 from core.database import get_db
 from ideas import schemas
 from ideas.models import EstadoIdea, Idea, MensajeEntrevista, RolMensaje
+from revision.service import crear_revision_para_idea
 from usuarios.models import Usuario
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
@@ -99,6 +100,7 @@ def enviar_mensaje(
     if respuesta["entrevista_completa"]:
         idea.estado = EstadoIdea.enviada
         idea.fecha_envio = datetime.now(timezone.utc)
+        crear_revision_para_idea(db, idea)
 
     db.commit()
     db.refresh(idea)

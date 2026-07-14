@@ -14,6 +14,9 @@ from core.database import Base  # noqa: E402
 from usuarios import models as usuarios_models  # noqa: E402,F401 — registra los modelos en Base.metadata
 from ideas import models as ideas_models  # noqa: E402,F401 — registra los modelos en Base.metadata
 from criterios import models as criterios_models  # noqa: E402,F401 — registra los modelos en Base.metadata
+from revision import models as revision_models  # noqa: E402,F401 — registra los modelos en Base.metadata
+from clasificacion import models as clasificacion_models  # noqa: E402,F401 — registra los modelos en Base.metadata
+from comites import models as comites_models  # noqa: E402,F401 — registra los modelos en Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

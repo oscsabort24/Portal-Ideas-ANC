@@ -5,6 +5,7 @@ import ChatEntrevista from './ideas/components/ChatEntrevista'
 import MisIdeas from './ideas/components/MisIdeas'
 import UsuariosView from './usuarios/components/UsuariosView'
 import CriteriosView from './criterios/components/CriteriosView'
+import RevisionView from './revision/components/RevisionView'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/ideas/:id" element={<ChatEntrevista />} />
         <Route path="/usuarios" element={<UsuariosView />} />
         <Route path="/criterios" element={<CriteriosView />} />
+        <Route path="/revision" element={<RevisionView />} />
       </Route>
     </Routes>
   )

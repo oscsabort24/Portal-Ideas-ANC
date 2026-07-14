@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { FiFileText, FiLock, FiPlus, FiShield, FiUsers } from 'react-icons/fi'
+import { FiCheckSquare, FiFileText, FiLock, FiPlus, FiShield, FiUsers } from 'react-icons/fi'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 
 export default function Sidebar() {
@@ -22,11 +22,10 @@ export default function Sidebar() {
 
       <div className="sidebar-section">
         <div className="sidebar-section-title">Revisión de área</div>
-        {/* Depende del módulo revision/, que todavía no existe. Deshabilitado hasta que se construya. */}
-        <span className="sidebar-link disabled">
-          <FiLock className="sidebar-link-icon" />
+        <NavLink to="/revision" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+          <FiCheckSquare className="sidebar-link-icon" />
           Por revisar
-        </span>
+        </NavLink>
       </div>
 
       <div className="sidebar-section">
