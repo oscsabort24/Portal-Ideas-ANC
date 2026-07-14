@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from comites import schemas
 from comites.models import ComiteIdea, EstadoComite
 from core.database import get_db
+from documentos.service import generar_documentos_para_idea
 from usuarios import models as usuarios_models
 from usuarios.dependencies import obtener_usuario_actual
 
@@ -66,6 +67,7 @@ def aprobar(
     comite.estado = EstadoComite.aprobada
     comite.aprobada_o_rechazada_por_id = usuario_actual.id
     comite.fecha_resolucion = datetime.now(timezone.utc)
+    generar_documentos_para_idea(db, comite.idea)
     db.commit()
     db.refresh(comite)
     return comite

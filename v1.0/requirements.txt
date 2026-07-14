@@ -17,3 +17,6 @@ bcrypt==4.2.1
 
 # python-multipart: requerido por FastAPI para leer UploadFile/Form (criterios/router.py)
 python-multipart==0.0.20
+
+# python-docx: generación de los 6 documentos formales (documentos/generadores.py)
+python-docx==1.1.2

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from clasificacion.router import router as clasificacion_router
 from comites.router import router as comites_router
 from criterios.router import router as criterios_router
+from documentos.router import router as documentos_router
 from ideas.router import router as ideas_router
 from notificaciones.router import router as notificaciones_router
 from revision.router import router as revision_router
@@ -26,9 +27,7 @@ app.include_router(revision_router)
 app.include_router(clasificacion_router)
 app.include_router(comites_router)
 app.include_router(notificaciones_router)
-
-# Routers pendientes a medida que se construyan los módulos:
-# from documentos.router import router as documentos_router
+app.include_router(documentos_router)
 
 
 @app.get("/health")
