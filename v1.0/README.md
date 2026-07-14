@@ -55,14 +55,14 @@ alembic upgrade head
 ### 5. Verificar la conexión
 
 ```bash
-uvicorn main:app --reload
+uvicorn main:app --reload --port 8010
 ```
 
 Luego, en otra terminal:
 
 ```bash
-curl http://localhost:8000/health
-curl http://localhost:8000/usuarios
+curl http://localhost:8010/health
+curl http://localhost:8010/usuarios
 ```
 
 `/usuarios` debe responder `[]` en una base recién migrada, sin usuarios
@@ -74,6 +74,34 @@ creados todavía.
 docker compose down          # detiene el contenedor, conserva los datos
 docker compose down -v       # detiene y borra también el volumen de datos
 ```
+
+## Problemas conocidos
+
+### Puerto 8000 con reserva fantasma (Windows, este equipo)
+
+El puerto por defecto de desarrollo de este backend es **8010, no el
+8000** convencional de FastAPI/uvicorn. En el equipo Windows donde se
+desarrolló este módulo, el puerto 8000 quedó con una reserva TCP
+fantasma: `netstat -ano | findstr :8000` muestra PIDs en estado
+`LISTENING`, pero esos PIDs no corresponden a ningún proceso real
+(`Get-Process`/`taskkill /F` confirman que no existen), y el puerto
+tampoco está dentro de los rangos administrados por Hyper-V/WSL2
+(`netsh interface ipv4 show excludedportrange`). Es un socket huérfano
+que Windows no libera aunque se maten los PIDs reportados.
+
+La solución conocida para este tipo de reserva fantasma es reiniciar el
+servicio de red (`net stop winnat && net start winnat`) o `wsl
+--shutdown`. Ambas opciones reinician toda la red virtual de
+Hyper-V/WSL2, lo que **tumbaría el contenedor Docker de SQL Server**
+(`portafolio-iniciativas-sqlserver`) y cualquier otro contenedor en
+ejecución. Por eso, mientras no sea estrictamente necesario liberar el
+8000, se evita tocar esa configuración y en su lugar el proyecto usa
+**8010** como puerto estándar de desarrollo (`PORT` en `.env.example`,
+`VITE_API_URL` en `frontend/.env.example`).
+
+Si en otro equipo el 8000 funciona sin problema, no hay nada que
+cambiar — el valor de `PORT`/`VITE_API_URL` en `.env` es local a cada
+entorno.
 
 ## Login con Microsoft Entra ID (MSAL) — pendiente de IT
 
