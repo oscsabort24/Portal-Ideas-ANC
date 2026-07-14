@@ -1,7 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { FiFileText, FiLock, FiPlus, FiUsers } from 'react-icons/fi'
+import { FiFileText, FiLock, FiPlus, FiShield, FiUsers } from 'react-icons/fi'
+import { useUsuarioActual } from '../core/UsuarioActualContext'
 
 export default function Sidebar() {
+  const usuarioActual = useUsuarioActual()
+  const esAdmin = usuarioActual.rol === 'admin'
+
   return (
     <nav className="app-sidebar">
       <div className="sidebar-section">
@@ -41,6 +45,16 @@ export default function Sidebar() {
           Usuarios
         </NavLink>
       </div>
+
+      {esAdmin && (
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Criterios IA</div>
+          <NavLink to="/criterios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <FiShield className="sidebar-link-icon" />
+            Documentos de criterios
+          </NavLink>
+        </div>
+      )}
     </nav>
   )
 }

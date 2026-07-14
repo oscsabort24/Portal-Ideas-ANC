@@ -4,6 +4,7 @@ import FormularioNuevaIdea from './ideas/components/FormularioNuevaIdea'
 import ChatEntrevista from './ideas/components/ChatEntrevista'
 import MisIdeas from './ideas/components/MisIdeas'
 import UsuariosView from './usuarios/components/UsuariosView'
+import CriteriosView from './criterios/components/CriteriosView'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/ideas/nueva" element={<FormularioNuevaIdea />} />
         <Route path="/ideas/:id" element={<ChatEntrevista />} />
         <Route path="/usuarios" element={<UsuariosView />} />
+        <Route path="/criterios" element={<CriteriosView />} />
       </Route>
     </Routes>
   )

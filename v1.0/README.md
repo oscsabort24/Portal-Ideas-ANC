@@ -112,3 +112,16 @@ compartir:
   lanza `NotImplementedError` a propósito) y conectar `Client Secret`
   cuando se decida validar tokens en el servidor en vez de confiar en
   el frontend.
+
+### Otro pendiente relacionado: recuperación de PIN por correo
+
+**Recuperación de PIN por correo — bloqueado hasta tener login real con
+correo institucional vinculado.** El módulo `criterios/` (documentos de
+IA versionados) usa un PIN personal por admin para autorizar subidas de
+documentos. Hoy, si un admin olvida su PIN, no hay forma de recuperarlo
+vía la app — la única opción es que un desarrollador lo restablezca
+manualmente con `v1.0/scripts/resetear_pin_emergencia.py` directamente
+contra la base de datos. Una vez que el login de Microsoft Entra ID esté
+conectado y cada usuario tenga su correo institucional verificado, se
+puede reemplazar esto por un flujo de recuperación por correo (enlace
+de un solo uso, similar a "olvidé mi contraseña").

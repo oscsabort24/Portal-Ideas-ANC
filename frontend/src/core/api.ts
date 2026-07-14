@@ -17,19 +17,34 @@ async function manejarRespuesta<T>(res: Response): Promise<T> {
   if (!res.ok) {
     throw new Error(await extraerMensajeError(res))
   }
-  return res.json() as Promise<T>
+  if (res.status === 204) {
+    return undefined as T
+  }
+  const cuerpo = await res.text()
+  return (cuerpo ? JSON.parse(cuerpo) : undefined) as T
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`)
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+  })
   return manejarRespuesta<T>(res)
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
     body: JSON.stringify(body),
+  })
+  return manejarRespuesta<T>(res)
+}
+
+export async function apiPostFormData<T>(path: string, formData: FormData): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    body: formData,
   })
   return manejarRespuesta<T>(res)
 }

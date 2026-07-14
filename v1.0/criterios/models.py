@@ -1,7 +1,7 @@
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -55,5 +55,13 @@ class PinAdmin(Base):
     actualizado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    # Bloqueo temporal por intentos fallidos consecutivos al cambiar el PIN.
+    intentos_fallidos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Límite de cambios EXITOSOS de PIN por día calendario (no cuenta la creación inicial).
+    cambios_hoy: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    fecha_ultimo_cambio: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     usuario: Mapped["Usuario"] = relationship()

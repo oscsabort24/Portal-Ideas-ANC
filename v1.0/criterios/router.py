@@ -1,3 +1,6 @@
+import math
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
@@ -13,6 +16,15 @@ from usuarios.dependencies import requerir_admin
 
 router = APIRouter(prefix="/criterios", tags=["criterios"])
 
+MAX_INTENTOS_FALLIDOS = 5
+MINUTOS_BLOQUEO = 15
+MAX_CAMBIOS_POR_DIA = 3
+
+
+def _minutos_restantes(bloqueado_hasta: datetime) -> int:
+    ahora = datetime.now(timezone.utc)
+    return max(1, math.ceil((bloqueado_hasta - ahora).total_seconds() / 60))
+
 
 @router.post("/pin", status_code=204)
 def definir_pin(
@@ -21,15 +33,66 @@ def definir_pin(
     admin: usuarios_models.Usuario = Depends(requerir_admin),
 ):
     pin_existente = db.query(models.PinAdmin).filter_by(usuario_id=admin.id).first()
+    ahora = datetime.now(timezone.utc)
 
-    if pin_existente:
-        if not payload.pin_actual or not verificar_pin(payload.pin_actual, pin_existente.pin_hash):
-            raise HTTPException(status_code=403, detail="El PIN actual no es correcto")
-        pin_existente.pin_hash = hashear_pin(payload.pin_nuevo)
-    else:
+    if not pin_existente:
+        # Primera vez: no cuenta para el límite diario ni pasa por ningún chequeo.
         db.add(models.PinAdmin(usuario_id=admin.id, pin_hash=hashear_pin(payload.pin_nuevo)))
+        db.commit()
+        return
 
+    # 1. ¿Bloqueado por intentos fallidos?
+    if pin_existente.bloqueado_hasta and pin_existente.bloqueado_hasta > ahora:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Demasiados intentos fallidos. Intenta de nuevo en {_minutos_restantes(pin_existente.bloqueado_hasta)} minutos.",
+        )
+
+    # 2. ¿Límite diario de cambios exitosos alcanzado? (se revisa antes de gastar un intento)
+    hoy = ahora.date()
+    cambios_hoy_efectivo = pin_existente.cambios_hoy if pin_existente.fecha_ultimo_cambio == hoy else 0
+    if cambios_hoy_efectivo >= MAX_CAMBIOS_POR_DIA:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Ya alcanzaste el límite de {MAX_CAMBIOS_POR_DIA} cambios de PIN hoy. Intenta de nuevo mañana.",
+        )
+
+    # 3. Verifica el PIN actual.
+    if not payload.pin_actual or not verificar_pin(payload.pin_actual, pin_existente.pin_hash):
+        pin_existente.intentos_fallidos += 1
+        if pin_existente.intentos_fallidos >= MAX_INTENTOS_FALLIDOS:
+            pin_existente.bloqueado_hasta = ahora + timedelta(minutes=MINUTOS_BLOQUEO)
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail=f"Demasiados intentos fallidos. Intenta de nuevo en {MINUTOS_BLOQUEO} minutos.",
+            )
+        db.commit()
+        intentos_restantes = MAX_INTENTOS_FALLIDOS - pin_existente.intentos_fallidos
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "El PIN actual no es correcto. "
+                f"Te quedan {intentos_restantes} intento(s) antes de bloquear temporalmente los cambios de PIN."
+            ),
+        )
+
+    # PIN correcto: resetea el bloqueo, actualiza el hash y el contador diario.
+    pin_existente.intentos_fallidos = 0
+    pin_existente.bloqueado_hasta = None
+    pin_existente.pin_hash = hashear_pin(payload.pin_nuevo)
+    pin_existente.cambios_hoy = cambios_hoy_efectivo + 1
+    pin_existente.fecha_ultimo_cambio = hoy
     db.commit()
+
+
+@router.get("/pin/estado")
+def estado_pin(
+    db: Session = Depends(get_db),
+    admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
+    tiene_pin = db.query(models.PinAdmin).filter_by(usuario_id=admin.id).first() is not None
+    return {"tiene_pin": tiene_pin}
 
 
 def _obtener_documento_activo(db: Session, tipo: TipoCriterio) -> models.DocumentoCriterio:
