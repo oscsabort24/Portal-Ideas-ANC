@@ -6,6 +6,8 @@ import MisIdeas from './ideas/components/MisIdeas'
 import UsuariosView from './usuarios/components/UsuariosView'
 import CriteriosView from './criterios/components/CriteriosView'
 import RevisionView from './revision/components/RevisionView'
+import ClasificacionView from './clasificacion/components/ClasificacionView'
+import ColaComite from './comites/components/ColaComite'
 
 export default function App() {
   return (
@@ -18,6 +20,8 @@ export default function App() {
         <Route path="/usuarios" element={<UsuariosView />} />
         <Route path="/criterios" element={<CriteriosView />} />
         <Route path="/revision" element={<RevisionView />} />
+        <Route path="/clasificacion" element={<ClasificacionView />} />
+        <Route path="/comites" element={<ColaComite />} />
       </Route>
     </Routes>
   )
