@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
 from core.database import Base
 from ideas.models import Idea  # noqa: F401 — necesario para resolver la relación RevisionIdea.idea
@@ -36,6 +37,10 @@ class RevisionIdea(Base):
     retroalimentacion: Mapped[str | None] = mapped_column(Text, nullable=True)
     fecha_asignacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fecha_resolucion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     idea: Mapped["Idea"] = relationship()
     revisor: Mapped["Usuario | None"] = relationship()
