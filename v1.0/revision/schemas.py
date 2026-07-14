@@ -39,3 +39,13 @@ class ReasignarRequest(BaseModel):
 
 class PedirCambiosRequest(BaseModel):
     retroalimentacion: str = Field(min_length=1)
+
+
+class HistorialRetroalimentacionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    retroalimentacion: str
+    creada_por_id: int
+    creada_por: UsuarioResumenOut
+    creada_en: datetime

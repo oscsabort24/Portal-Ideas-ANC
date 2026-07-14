@@ -44,3 +44,27 @@ class RevisionIdea(Base):
 
     idea: Mapped["Idea"] = relationship()
     revisor: Mapped["Usuario | None"] = relationship()
+
+
+class HistorialRetroalimentacion(Base):
+    """Bitácora append-only de cada ronda de retroalimentación de una revisión.
+
+    Se crea una fila nueva en cada POST /revision/{idea_id}/pedir-cambios
+    (ver revision/router.py:pedir_cambios) — nunca se edita ni se borra.
+    RevisionIdea.retroalimentacion sigue reflejando solo la más reciente
+    (para no depender de un join en las vistas rápidas); este modelo es
+    el historial completo para auditoría.
+    """
+
+    __tablename__ = "historial_retroalimentacion"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision_id: Mapped[int] = mapped_column(ForeignKey("revision_ideas.id"), nullable=False)
+    retroalimentacion: Mapped[str] = mapped_column(Text, nullable=False)
+    creada_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    creada_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    revision: Mapped["RevisionIdea"] = relationship()
+    creada_por: Mapped["Usuario"] = relationship()

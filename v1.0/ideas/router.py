@@ -1,13 +1,14 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.claude_client import generar_respuesta
 from core.database import get_db
 from ideas import schemas
 from ideas.models import EstadoIdea, Idea, MensajeEntrevista, RolMensaje
+from ideas.service import siguiente_orden
+from revision.models import EstadoRevision, RevisionIdea
 from revision.service import crear_revision_para_idea
 from usuarios.models import Usuario
 
@@ -18,13 +19,6 @@ SYSTEM_PROMPT_ENTREVISTA = (
     "Sé estricto: si una respuesta es vaga, pide ejemplos concretos antes de aceptarla. "
     "No avances con contenido pobre."
 )
-
-
-def _siguiente_orden(db: Session, idea_id: int) -> int:
-    maximo = db.query(func.max(MensajeEntrevista.orden)).filter(
-        MensajeEntrevista.idea_id == idea_id
-    ).scalar()
-    return (maximo or 0) + 1
 
 
 @router.post("", response_model=schemas.IdeaOut, status_code=201)
@@ -70,9 +64,11 @@ def enviar_mensaje(
     if not idea:
         raise HTTPException(status_code=404, detail="Idea no encontrada")
     if idea.estado == EstadoIdea.enviada:
-        raise HTTPException(status_code=400, detail="La idea ya fue enviada, no admite más mensajes")
+        revision = db.query(RevisionIdea).filter_by(idea_id=idea_id).first()
+        if not revision or revision.estado != EstadoRevision.cambios_solicitados:
+            raise HTTPException(status_code=400, detail="La idea ya fue enviada, no admite más mensajes")
 
-    orden_usuario = _siguiente_orden(db, idea_id)
+    orden_usuario = siguiente_orden(db, idea_id)
     mensaje_usuario = MensajeEntrevista(
         idea_id=idea_id, rol=RolMensaje.usuario, contenido=payload.contenido, orden=orden_usuario
     )
@@ -98,9 +94,19 @@ def enviar_mensaje(
     db.add(mensaje_asistente)
 
     if respuesta["entrevista_completa"]:
-        idea.estado = EstadoIdea.enviada
-        idea.fecha_envio = datetime.now(timezone.utc)
-        crear_revision_para_idea(db, idea)
+        if idea.estado == EstadoIdea.borrador:
+            # Primera vez que se completa la entrevista — no existe RevisionIdea todavía.
+            idea.estado = EstadoIdea.enviada
+            idea.fecha_envio = datetime.now(timezone.utc)
+            crear_revision_para_idea(db, idea)
+        else:
+            # idea.estado ya era "enviada": solo se llega aquí porque el guard de arriba
+            # confirmó que existe una RevisionIdea en cambios_solicitados — es una
+            # rectificación. Reactiva la revisión existente, nunca crea una nueva
+            # (RevisionIdea.idea_id es unique).
+            revision = db.query(RevisionIdea).filter_by(idea_id=idea_id).first()
+            revision.estado = EstadoRevision.pendiente_revision
+            revision.fecha_asignacion = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(idea)
