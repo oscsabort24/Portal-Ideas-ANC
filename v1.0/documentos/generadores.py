@@ -9,14 +9,20 @@ una celda/párrafo vacío en el documento, mismo patrón de fallback
 textual que usaba el prototipo v0.1 ("Pendiente de definir", "Por
 definir", etc.).
 
-BPMN as-is/to-be se representa como tabla (Paso/Actor/Acción/Tipo),
-NO como diagrama visual. Un diagrama real con Graphviz queda como
-pendiente futuro — requiere decidir el layout (swimlanes por actor) y
-no está confirmado por Armando todavía.
+BPMN as-is/to-be se genera como diagrama visual real (cajas y flechas)
+con Graphviz — ver _generar_diagrama_bpmn. Requiere el ejecutable
+`dot` de Graphviz instalado en el sistema (no solo el paquete de
+Python); ver _asegurar_graphviz_disponible para el manejo de ese caso.
 """
 
+import os
+import platform
+import shutil
+
+import graphviz
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Inches
 
 
 def _agregar_encabezado(doc: Document, titulo: str, subtitulo: str) -> None:
@@ -78,12 +84,88 @@ def generar_charter_docx(datos: dict, ruta_salida: str) -> None:
     doc.save(ruta_salida)
 
 
+def _asegurar_graphviz_disponible() -> None:
+    """Verifica que el ejecutable `dot` de Graphviz esté disponible.
+
+    1. Si ya está en el PATH (cualquier SO), no hace nada.
+    2. Si no, intenta agregar rutas candidatas conocidas SEGÚN EL SISTEMA
+       OPERATIVO — hoy solo Windows, porque en Linux/macOS Graphviz
+       instalado vía el gestor de paquetes (apt/yum/brew) ya queda en el
+       PATH del sistema sin necesitar este workaround.
+    3. Si sigue sin encontrarse, lanza un RuntimeError descriptivo (en vez
+       del ExecutableNotFound genérico de la librería graphviz) que dice
+       exactamente qué falta y cómo resolverlo.
+    """
+    if shutil.which("dot"):
+        return
+
+    rutas_candidatas = {
+        "Windows": [r"C:\Program Files\Graphviz\bin"],
+    }.get(platform.system(), [])
+
+    for ruta in rutas_candidatas:
+        if os.path.isdir(ruta):
+            os.environ["PATH"] += os.pathsep + ruta
+            if shutil.which("dot"):
+                return
+
+    raise RuntimeError(
+        "Graphviz (el ejecutable 'dot') no está instalado o no está en el PATH "
+        "de este proceso. Instálalo desde https://graphviz.org/download/ "
+        "(Windows) o con el gestor de paquetes de tu sistema (ej. "
+        "'apt install graphviz' en Linux), y asegúrate de que el directorio "
+        "bin quede en el PATH — luego reinicia el servidor para que tome el "
+        "PATH actualizado."
+    )
+
+
+_FORMA_POR_TIPO = {
+    "inicio": "ellipse",
+    "fin": "ellipse",
+    "tarea": "box",
+    "decision": "diamond",
+}
+
+
+def _generar_diagrama_bpmn(pasos: list[dict], ruta_base_sin_extension: str) -> str | None:
+    """Genera un PNG (cajas y flechas) para un proceso as-is o to-be.
+
+    El orden de las cajas es el orden del array `pasos` (por índice) —
+    NO el campo "id": el stub de IA hoy ni siquiera lo incluye, y no hay
+    garantía de que sea secuencial cuando exista en datos reales.
+
+    Devuelve la ruta del PNG generado, o None si `pasos` viene vacío —
+    en ese caso el llamador debe usar el fallback de texto "Pendiente de
+    definir", igual que el resto de los campos del documento. Un solo
+    paso también es válido: se dibuja un único nodo sin flechas (es
+    justamente lo que produce el stub de IA hoy).
+    """
+    if not pasos:
+        return None
+
+    _asegurar_graphviz_disponible()
+
+    grafo = graphviz.Digraph(format="png")
+    grafo.attr(rankdir="LR")
+
+    for i, paso in enumerate(pasos):
+        actor = paso.get("actor") or "—"
+        accion = paso.get("accion") or "Pendiente de definir"
+        forma = _FORMA_POR_TIPO.get(paso.get("tipo"), "box")
+        grafo.node(f"n{i}", f"{actor}: {accion}", shape=forma)
+
+    for i in range(len(pasos) - 1):
+        grafo.edge(f"n{i}", f"n{i + 1}")
+
+    return grafo.render(ruta_base_sin_extension, cleanup=True)
+
+
 def generar_bpmn_docx(datos: dict, ruta_salida: str) -> None:
     """datos: titulo, descripcion, actores: list[str],
     pasos_as_is / pasos_to_be: list[{actor, accion, tipo}].
 
-    Tabla Paso/Actor/Acción/Tipo — sin diagrama visual (ver docstring
-    del módulo)."""
+    Genera un diagrama real por lado (as-is/to-be) con Graphviz y lo
+    inserta como imagen — ver _generar_diagrama_bpmn."""
     doc = Document()
     _agregar_encabezado(doc, datos.get("titulo") or "Diagrama de Proceso", "BPMN")
 
@@ -93,25 +175,20 @@ def generar_bpmn_docx(datos: dict, ruta_salida: str) -> None:
     actores = datos.get("actores") or []
     doc.add_paragraph(", ".join(actores) if actores else "No especificados")
 
-    def _tabla_pasos(titulo_seccion: str, pasos: list[dict]) -> None:
-        doc.add_heading(titulo_seccion, level=1)
-        tabla = doc.add_table(rows=1, cols=4)
-        tabla.style = "Table Grid"
-        encabezado = tabla.rows[0].cells
-        encabezado[0].text = "Paso"
-        encabezado[1].text = "Actor"
-        encabezado[2].text = "Acción"
-        encabezado[3].text = "Tipo"
-        for i, paso in enumerate(pasos or [], start=1):
-            fila = tabla.add_row().cells
-            fila[0].text = str(i)
-            fila[1].text = paso.get("actor") or "—"
-            fila[2].text = paso.get("accion") or "Pendiente de definir"
-            fila[3].text = paso.get("tipo") or "tarea"
+    base_sin_extension = os.path.splitext(ruta_salida)[0]
 
-    _tabla_pasos("Proceso Actual (AS-IS)", datos.get("pasos_as_is"))
+    def _seccion_proceso(titulo_seccion: str, pasos: list[dict], sufijo: str) -> None:
+        doc.add_heading(titulo_seccion, level=1)
+        ruta_png = _generar_diagrama_bpmn(pasos, f"{base_sin_extension}_{sufijo}")
+        if ruta_png:
+            doc.add_picture(ruta_png, width=Inches(6.5))
+            os.remove(ruta_png)  # ya insertado en el .docx, no hace falta conservarlo en disco
+        else:
+            doc.add_paragraph("Pendiente de definir")
+
+    _seccion_proceso("Proceso Actual (AS-IS)", datos.get("pasos_as_is") or [], "as_is")
     doc.add_paragraph()
-    _tabla_pasos("Proceso Futuro (TO-BE)", datos.get("pasos_to_be"))
+    _seccion_proceso("Proceso Futuro (TO-BE)", datos.get("pasos_to_be") or [], "to_be")
 
     doc.save(ruta_salida)
 

@@ -20,3 +20,9 @@ python-multipart==0.0.20
 
 # python-docx: generación de los 6 documentos formales (documentos/generadores.py)
 python-docx==1.1.2
+
+# graphviz: diagrama BPMN visual (documentos/generadores.py). Requiere el
+# ejecutable "dot" de Graphviz instalado en el sistema, no solo este paquete
+# — ver https://graphviz.org/download/ (Windows) o el gestor de paquetes de
+# tu distro en Linux/macOS.
+graphviz==0.21
