@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -45,3 +46,10 @@ class RespuestaEntrevistaOut(BaseModel):
     idea: IdeaOut
     mensaje_usuario: MensajeEntrevistaOut
     mensaje_asistente: MensajeEntrevistaOut
+
+
+class EventoLineaTiempoOut(BaseModel):
+    tipo: str
+    descripcion: str
+    fecha: datetime
+    color: Literal["exito", "advertencia", "peligro", "info"]

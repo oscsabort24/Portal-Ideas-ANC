@@ -4,6 +4,11 @@ import DocumentosGenerados from '../../documentos/components/DocumentosGenerados
 import { enviarMensaje, obtenerIdea } from '../api'
 import type { IdeaDetalle, MensajeEntrevista } from '../types'
 import BurbujaMensaje from './BurbujaMensaje'
+import LineaTiempo from './LineaTiempo'
+
+function claveBorrador(ideaId: number): string {
+  return `borrador-mensaje-${ideaId}`
+}
 
 export default function ChatEntrevista() {
   const { id } = useParams<{ id: string }>()
@@ -11,11 +16,22 @@ export default function ChatEntrevista() {
 
   const [idea, setIdea] = useState<IdeaDetalle | null>(null)
   const [mensajes, setMensajes] = useState<MensajeEntrevista[]>([])
-  const [contenido, setContenido] = useState('')
+  const [contenido, setContenido] = useState(() => localStorage.getItem(claveBorrador(ideaId)) ?? '')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const finMensajesRef = useRef<HTMLDivElement | null>(null)
+
+  // Auto-guarda el texto no enviado — se restaura si la persona recarga la
+  // página o vuelve más tarde sin haber presionado enviar.
+  useEffect(() => {
+    const clave = claveBorrador(ideaId)
+    if (contenido.trim()) {
+      localStorage.setItem(clave, contenido)
+    } else {
+      localStorage.removeItem(clave)
+    }
+  }, [contenido, ideaId])
 
   useEffect(() => {
     let cancelado = false
@@ -48,6 +64,7 @@ export default function ChatEntrevista() {
       setMensajes((prev) => [...prev, respuesta.mensaje_usuario, respuesta.mensaje_asistente])
       setIdea((prev) => (prev ? { ...prev, estado: respuesta.idea.estado, fecha_envio: respuesta.idea.fecha_envio } : prev))
       setContenido('')
+      localStorage.removeItem(claveBorrador(ideaId))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo enviar el mensaje')
     } finally {
@@ -106,6 +123,7 @@ export default function ChatEntrevista() {
         </div>
       </div>
 
+      <LineaTiempo ideaId={ideaId} />
       <DocumentosGenerados ideaId={ideaId} />
     </div>
   )

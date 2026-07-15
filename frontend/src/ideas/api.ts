@@ -1,5 +1,5 @@
 import { apiGet, apiPost } from '../core/api'
-import type { EstadoIdea, Idea, IdeaDetalle, RespuestaEntrevista } from './types'
+import type { EstadoIdea, EventoLineaTiempo, Idea, IdeaDetalle, RespuestaEntrevista } from './types'
 
 export function crearIdea(payload: { titulo: string; autor_id: number }): Promise<Idea> {
   return apiPost<Idea>('/ideas', payload)
@@ -19,4 +19,8 @@ export function listarIdeas(filtros: { autor_id?: number; estado?: EstadoIdea } 
 
 export function enviarMensaje(ideaId: number, contenido: string): Promise<RespuestaEntrevista> {
   return apiPost<RespuestaEntrevista>(`/ideas/${ideaId}/mensajes`, { contenido })
+}
+
+export function obtenerLineaTiempo(ideaId: number): Promise<EventoLineaTiempo[]> {
+  return apiGet<EventoLineaTiempo[]>(`/ideas/${ideaId}/linea-tiempo`)
 }

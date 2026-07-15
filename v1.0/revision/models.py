@@ -68,3 +68,34 @@ class HistorialRetroalimentacion(Base):
 
     revision: Mapped["RevisionIdea"] = relationship()
     creada_por: Mapped["Usuario"] = relationship()
+
+
+class HistorialReasignacion(Base):
+    """Bitácora append-only de cada reasignación de revisor.
+
+    Se crea una fila en cada POST /revision/{idea_id}/reasignar (ver
+    revision/router.py:reasignar). POST /revision/{idea_id}/asignar NO
+    registra aquí: ese endpoint solo se ejecuta cuando revisor_id todavía
+    era NULL (su propio guard exige estado == pendiente_asignacion), así
+    que nunca es una reasignación real — no hay "revisor anterior" que
+    registrar.
+
+    Los reasignos ocurridos ANTES de que este modelo existiera no
+    aparecen en el timeline de la idea (GET /ideas/{id}/linea-tiempo) —
+    ese dato ya se perdió, porque revision_ideas solo guardaba el
+    revisor_id vigente, sobrescrito en cada reasignación anterior.
+    """
+
+    __tablename__ = "historial_reasignacion"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision_id: Mapped[int] = mapped_column(ForeignKey("revision_ideas.id"), nullable=False)
+    revisor_anterior_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    revisor_nuevo_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    creada_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    revision: Mapped["RevisionIdea"] = relationship()
+    revisor_anterior: Mapped["Usuario"] = relationship(foreign_keys=[revisor_anterior_id])
+    revisor_nuevo: Mapped["Usuario"] = relationship(foreign_keys=[revisor_nuevo_id])

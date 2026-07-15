@@ -29,3 +29,12 @@ export interface RespuestaEntrevista {
   mensaje_usuario: MensajeEntrevista
   mensaje_asistente: MensajeEntrevista
 }
+
+export type ColorEvento = 'exito' | 'advertencia' | 'peligro' | 'info'
+
+export interface EventoLineaTiempo {
+  tipo: string
+  descripcion: string
+  fecha: string
+  color: ColorEvento
+}

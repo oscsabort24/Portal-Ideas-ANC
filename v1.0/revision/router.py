@@ -8,7 +8,7 @@ from core.database import get_db
 from ideas.models import MensajeEntrevista, RolMensaje
 from ideas.service import siguiente_orden
 from revision import schemas
-from revision.models import EstadoRevision, HistorialRetroalimentacion, RevisionIdea
+from revision.models import EstadoRevision, HistorialReasignacion, HistorialRetroalimentacion, RevisionIdea
 from usuarios import models as usuarios_models
 from usuarios.dependencies import obtener_usuario_actual, requerir_admin
 
@@ -72,6 +72,9 @@ def asignar(
 
     revisor = _validar_revisor_destino(db, payload.revisor_id)
 
+    # No se registra en HistorialReasignacion: el guard de arriba exige
+    # pendiente_asignacion, es decir revisor_id ya era NULL — esta es la
+    # primera asignación, no una reasignación (no hay "revisor anterior").
     revision.revisor_id = revisor.id
     revision.estado = EstadoRevision.pendiente_revision
     revision.fecha_asignacion = datetime.now(timezone.utc)
@@ -161,6 +164,14 @@ def reasignar(
         raise HTTPException(status_code=400, detail="Esta idea ya no está pendiente de revisión")
 
     nuevo_revisor = _validar_revisor_destino(db, payload.nuevo_revisor_id)
+
+    db.add(
+        HistorialReasignacion(
+            revision_id=revision.id,
+            revisor_anterior_id=revision.revisor_id,
+            revisor_nuevo_id=nuevo_revisor.id,
+        )
+    )
 
     revision.revisor_id = nuevo_revisor.id
     revision.fecha_asignacion = datetime.now(timezone.utc)

@@ -7,7 +7,7 @@ from core.claude_client import generar_respuesta
 from core.database import get_db
 from ideas import schemas
 from ideas.models import EstadoIdea, Idea, MensajeEntrevista, RolMensaje
-from ideas.service import siguiente_orden
+from ideas.service import construir_linea_tiempo, siguiente_orden
 from revision.models import EstadoRevision, RevisionIdea
 from revision.service import crear_revision_para_idea
 from usuarios.models import Usuario
@@ -54,6 +54,14 @@ def obtener_idea(idea_id: int, db: Session = Depends(get_db)):
     if not idea:
         raise HTTPException(status_code=404, detail="Idea no encontrada")
     return idea
+
+
+@router.get("/{idea_id}/linea-tiempo", response_model=list[schemas.EventoLineaTiempoOut])
+def linea_tiempo(idea_id: int, db: Session = Depends(get_db)):
+    idea = db.get(Idea, idea_id)
+    if not idea:
+        raise HTTPException(status_code=404, detail="Idea no encontrada")
+    return construir_linea_tiempo(db, idea)
 
 
 @router.post("/{idea_id}/mensajes", response_model=schemas.RespuestaEntrevistaOut, status_code=201)

@@ -2,8 +2,24 @@ import { Outlet } from 'react-router-dom'
 import { FiBell, FiLock, FiLogOut } from 'react-icons/fi'
 import { useMsal } from '@azure/msal-react'
 import { azureAdConfigurado } from '../core/authConfig'
+import { useInactividad } from '../core/hooks/useInactividad'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import Sidebar from './Sidebar'
+
+function AvisoInactividad() {
+  // Solo tiene sentido con una sesión real de Microsoft — en modo simulado
+  // no hay nada que expirar.
+  const { instance } = useMsal()
+  const { mostrarAviso } = useInactividad(() => instance.logoutRedirect())
+
+  if (!mostrarAviso) return null
+
+  return (
+    <div className="banner-inactividad">
+      Tu sesión expirará en 2 minutos por inactividad.
+    </div>
+  )
+}
 
 function IconoNotificaciones() {
   return (
@@ -45,6 +61,8 @@ function BotonCerrarSesion() {
 export default function AppLayout() {
   return (
     <>
+      {azureAdConfigurado && <AvisoInactividad />}
+
       <header className="app-header">
         <div className="brand-logomark">
           <img className="brand-logo-img" src="/assets/logo.jpg" alt="Grupo ANC" />
