@@ -1,7 +1,7 @@
 import { Outlet } from 'react-router-dom'
-import { FiBell, FiLock, FiLogIn, FiLogOut } from 'react-icons/fi'
-import { useIsAuthenticated, useMsal } from '@azure/msal-react'
-import { azureAdConfigurado, loginRequest } from '../core/authConfig'
+import { FiBell, FiLock, FiLogOut } from 'react-icons/fi'
+import { useMsal } from '@azure/msal-react'
+import { azureAdConfigurado } from '../core/authConfig'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import Sidebar from './Sidebar'
 
@@ -25,29 +25,19 @@ function AccionesSesion() {
     return <span className="header-usuario-actual">{usuarioActual.nombre}</span>
   }
 
-  return <BotonSesionMicrosoft />
+  // AppLayout solo se monta cuando AuthProvider ya resolvió estado="listo" —
+  // es decir, siempre hay una sesión de Microsoft activa en este punto.
+  // La pantalla de login vive aparte, en LoginScreen.tsx.
+  return <BotonCerrarSesion />
 }
 
-function BotonSesionMicrosoft() {
+function BotonCerrarSesion() {
   const { instance } = useMsal()
-  const estaAutenticado = useIsAuthenticated()
   const usuarioActual = useUsuarioActual()
 
-  if (estaAutenticado) {
-    return (
-      <button
-        className="btn-header-sesion"
-        onClick={() => instance.logoutRedirect()}
-        title="Cerrar sesión"
-      >
-        <FiLogOut /> {usuarioActual.nombre}
-      </button>
-    )
-  }
-
   return (
-    <button className="btn-header-sesion" onClick={() => instance.loginRedirect(loginRequest)}>
-      <FiLogIn /> Iniciar sesión con Microsoft
+    <button className="btn-header-sesion" onClick={() => instance.logoutRedirect()} title="Cerrar sesión">
+      <FiLogOut /> {usuarioActual.nombre}
     </button>
   )
 }

@@ -10,6 +10,13 @@ export const ETIQUETA_ROL: Record<RolUsuario, string> = {
   admin: 'Administrador',
 }
 
+export const DESCRIPCION_ROL: Record<RolUsuario, string> = {
+  colaborador: 'Puede crear y ver sus propias ideas.',
+  encargado_area: 'Además, revisa ideas asignadas de su departamento (aprobar, pedir cambios, reasignar).',
+  gerente: 'Rol jerárquico general — hoy no tiene permisos especiales propios más allá de los de colaborador, salvo que además sea miembro de un CAB.',
+  admin: 'Gestión completa de usuarios, departamentos, puestos, CAB, criterios de IA y notificaciones.',
+}
+
 export const ETIQUETA_PAIS: Record<PaisUsuario, string> = {
   CR: 'Costa Rica',
   GT: 'Guatemala',

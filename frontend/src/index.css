@@ -501,6 +501,27 @@ a { color: inherit; text-decoration: none; }
   min-width: 240px;
 }
 
+.leyenda-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.leyenda-roles-item strong { color: var(--text); }
+
+.form-help {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
 /* ─────────────────────────────────────────────
    FORMULARIOS (usuarios/)
 ───────────────────────────────────────────── */
@@ -511,6 +532,195 @@ a { color: inherit; text-decoration: none; }
   padding: 20px;
   box-shadow: var(--shadow-sm);
   margin-bottom: 20px;
+}
+
+.onboarding-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 24px;
+}
+
+.onboarding-shell .form-card {
+  width: 100%;
+  max-width: 480px;
+}
+
+.login-screen {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Ondas decorativas: confinadas al panel izquierdo (no a toda la pantalla).
+   IMPORTANTE: .login-panel-izq NO debe declarar z-index propio (solo
+   position: relative, que ya tiene, para anclar el SVG y el pie de página
+   absolutos) — position + z-index numérico crea un stacking context nuevo
+   que aislaría a sus descendientes y les impediría competir en z-index
+   contra este SVG (bug ya corregido antes: el texto quedaba tapado por
+   la onda). Con el panel en z-index:auto, la onda (z-index:0) y el
+   contenido de texto (z-index:1) comparan directo en el mismo contexto. */
+.login-ondas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ── Panel izquierdo (marca) ── */
+.login-panel-izq {
+  flex: 0 0 38%;
+  background: #0D2743;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 32px;
+  overflow: hidden;
+}
+
+.login-logo-circle {
+  position: relative;
+  z-index: 1;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+
+.login-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 12px;
+}
+
+.login-brand-title {
+  position: relative;
+  z-index: 1;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 500;
+  margin: 0 0 10px;
+  text-align: center;
+}
+
+.login-brand-subtitle {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  text-align: center;
+  margin: 0;
+  max-width: 260px;
+}
+
+.login-brand-footer {
+  position: absolute;
+  z-index: 1;
+  bottom: 24px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  margin: 0;
+}
+
+/* ── Línea divisoria ── */
+.login-divider {
+  flex: 0 0 4px;
+  background: #006937;
+}
+
+/* ── Panel derecho (formulario) ── */
+.login-panel-der {
+  flex: 1;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 40px;
+}
+
+.login-contenido {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 360px;
+  margin: auto 0;
+}
+
+.login-footer-der {
+  position: relative;
+  z-index: 1;
+  color: #D1D5DB;
+  font-size: 11px;
+  margin: 0;
+}
+
+.login-bienvenido {
+  font-size: 13px;
+  font-weight: 600;
+  color: #9CA3AF;
+  letter-spacing: 0.12em;
+  margin: 0 0 10px;
+}
+
+.login-heading {
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 10px;
+}
+
+.login-desc {
+  font-size: 14px;
+  color: #6B7280;
+  line-height: 1.5;
+  margin: 0 0 28px;
+}
+
+.login-ms-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 20px;
+  font-size: 14.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.login-ms-btn:hover { background: #1f2937; }
+
+.login-ms-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+.login-lock-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #9CA3AF;
+  margin: 18px 0 0;
 }
 
 .form-card-inline {

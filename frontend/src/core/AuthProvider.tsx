@@ -1,30 +1,100 @@
 import { MsalProvider, useMsal } from '@azure/msal-react'
-import { PublicClientApplication, type AccountInfo } from '@azure/msal-browser'
-import { type ReactNode } from 'react'
+import { PublicClientApplication } from '@azure/msal-browser'
+import { useEffect, useState, type ReactNode } from 'react'
+import OnboardingPerfil from '../usuarios/components/OnboardingPerfil'
+import { obtenerUsuarioPorCorreo } from '../usuarios/api'
+import type { Usuario } from '../usuarios/types'
 import { azureAdConfigurado, msalConfig } from './authConfig'
-import { UsuarioActualContext, UsuarioActualProvider, USUARIO_ACTUAL } from './UsuarioActualContext'
-import type { UsuarioBasico } from './types'
+import LoginScreen from './LoginScreen'
+import { UsuarioActualContext, UsuarioActualProvider, USUARIO_ACTUAL, actualizarUsuarioActual } from './UsuarioActualContext'
 
 const msalInstance = azureAdConfigurado ? new PublicClientApplication(msalConfig) : null
 
-// TODO: una vez que exista un endpoint para buscar un usuario interno por
-// correo, reemplazar este placeholder por la búsqueda real (id y rol reales
-// en nuestra base, no solo los claims de Azure). Ver v1.0/README.md.
-function usuarioDesdeCuentaAzure(cuenta: AccountInfo): UsuarioBasico {
-  return {
-    id: USUARIO_ACTUAL.id,
-    nombre: cuenta.name ?? cuenta.username,
-    correo: cuenta.username,
-    rol: USUARIO_ACTUAL.rol,
-  }
+function esNoEncontrado(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('No existe un usuario con ese correo')
 }
 
-function UsuarioAzureProvider({ children }: { children: ReactNode }) {
+type EstadoResolucion = 'no_autenticado' | 'verificando' | 'onboarding' | 'listo'
+
+/**
+ * Máquina de 4 estados que decide qué pantalla completa mostrar antes de
+ * dejar entrar a la app real (sidebar + rutas):
+ *
+ * - no_autenticado: no hay ninguna cuenta MSAL activa -> LoginScreen
+ * - verificando: hay cuenta MSAL, se está resolviendo el usuario real
+ *   (GET /usuarios/por-correo) -> loader, para no mostrar la app con
+ *   datos simulados/incompletos ni por un instante
+ * - onboarding: la cuenta MSAL no tiene Usuario todavía en nuestra BD
+ *   (404) -> OnboardingPerfil
+ * - listo: usuario real resuelto -> children (la app normal)
+ */
+function ResolverUsuarioMsal({ children }: { children: ReactNode }) {
   const { accounts } = useMsal()
   const cuenta = accounts[0]
-  const usuario = cuenta ? usuarioDesdeCuentaAzure(cuenta) : USUARIO_ACTUAL
 
-  return <UsuarioActualContext.Provider value={usuario}>{children}</UsuarioActualContext.Provider>
+  const [estado, setEstado] = useState<EstadoResolucion>(cuenta ? 'verificando' : 'no_autenticado')
+  const [usuarioReal, setUsuarioReal] = useState<Usuario | null>(null)
+
+  useEffect(() => {
+    if (!cuenta) {
+      setEstado('no_autenticado')
+      return
+    }
+
+    setEstado('verificando')
+    let cancelado = false
+    const correo = cuenta.username
+
+    obtenerUsuarioPorCorreo(correo)
+      .then((usuario) => {
+        if (cancelado) return
+        actualizarUsuarioActual(usuario)
+        setUsuarioReal(usuario)
+        setEstado('listo')
+      })
+      .catch((err) => {
+        if (cancelado) return
+        if (esNoEncontrado(err)) {
+          setEstado('onboarding')
+        } else {
+          // Fallo de red u otro error inesperado: no hay forma segura de
+          // continuar sin saber quién es el usuario real, así que se
+          // mantiene en "verificando" — el usuario puede reintentar
+          // recargando la página.
+          console.error('No se pudo resolver el usuario actual:', err)
+        }
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [cuenta])
+
+  function handleOnboardingCompletado(usuario: Usuario) {
+    actualizarUsuarioActual(usuario)
+    setUsuarioReal(usuario)
+    setEstado('listo')
+  }
+
+  if (estado === 'no_autenticado') {
+    return <LoginScreen />
+  }
+
+  if (estado === 'verificando') {
+    return (
+      <div className="onboarding-shell">
+        <p>Verificando tu cuenta...</p>
+      </div>
+    )
+  }
+
+  if (estado === 'onboarding') {
+    const nombre = cuenta!.name ?? cuenta!.username
+    return <OnboardingPerfil nombre={nombre} correo={cuenta!.username} onCompletado={handleOnboardingCompletado} />
+  }
+
+  return (
+    <UsuarioActualContext.Provider value={usuarioReal ?? USUARIO_ACTUAL}>{children}</UsuarioActualContext.Provider>
+  )
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -35,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <MsalProvider instance={msalInstance}>
-      <UsuarioAzureProvider>{children}</UsuarioAzureProvider>
+      <ResolverUsuarioMsal>{children}</ResolverUsuarioMsal>
     </MsalProvider>
   )
 }

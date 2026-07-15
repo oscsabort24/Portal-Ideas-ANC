@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { actualizarUsuario, crearUsuario } from '../api'
 import {
+  DESCRIPCION_ROL,
   ETIQUETA_COMPANIA,
   ETIQUETA_PAIS,
   ETIQUETA_ROL,
@@ -170,6 +171,7 @@ export default function FormularioPersona({
                 <option key={r} value={r}>{ETIQUETA_ROL[r]}</option>
               ))}
             </select>
+            <p className="form-help">{DESCRIPCION_ROL[rol]}</p>
           </div>
         )}
 

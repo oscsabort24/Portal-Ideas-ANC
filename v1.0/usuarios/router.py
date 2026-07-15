@@ -41,6 +41,25 @@ def listar_usuarios(db: Session = Depends(get_db)):
     return db.query(models.Usuario).all()
 
 
+@router.get("/por-correo", response_model=schemas.UsuarioOut)
+def obtener_usuario_por_correo(correo: str, db: Session = Depends(get_db)):
+    """Busca un usuario por correo, case-insensitive.
+
+    Usado por el flujo de onboarding tras login con Microsoft (MSAL): el
+    correo del token de Azure puede variar en mayúsculas respecto al
+    guardado en nuestra BD. La collation real de la BD (SQL_Latin1_General_CP1_CI_AS)
+    ya es case-insensitive, pero se normaliza con func.lower() en ambos
+    lados explícitamente para no depender de ese detalle de configuración.
+    404 es la señal que usa el frontend para decidir mostrar onboarding.
+    Debe declararse ANTES de /{usuario_id} para que "por-correo" no se
+    intente interpretar como un usuario_id numérico.
+    """
+    usuario = db.query(models.Usuario).filter(func.lower(models.Usuario.correo) == func.lower(correo)).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="No existe un usuario con ese correo")
+    return usuario
+
+
 @router.get("/{usuario_id}", response_model=schemas.UsuarioOut)
 def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
     usuario = db.get(models.Usuario, usuario_id)

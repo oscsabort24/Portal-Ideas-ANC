@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { FiFileText } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
-import { listarMiembrosCab, listarUsuarios } from '../../usuarios/api'
+import { listarUsuarios } from '../../usuarios/api'
+import { useEsMiembroCab } from '../../usuarios/hooks/useEsMiembroCab'
 import type { TipoCAB, Usuario } from '../../usuarios/types'
 import { aprobar, colaComite, rechazar } from '../api'
 import type { ComiteIdeaDetalle } from '../types'
@@ -16,11 +17,10 @@ const TODOS_LOS_TIPOS: TipoCAB[] = ['innovacion', 'transformacion_digital']
 export default function ColaComite() {
   const usuarioActual = useUsuarioActual()
   const esAdmin = usuarioActual.rol === 'admin'
-  const [misTiposCab, setMisTiposCab] = useState<TipoCAB[] | null>(null)
+  const { tiposCab: misTiposCab, cargando: cargandoMembresias, error: errorMembresias } = useEsMiembroCab()
   const [tipoSeleccionado, setTipoSeleccionado] = useState<TipoCAB | null>(null)
   const [cola, setCola] = useState<ComiteIdeaDetalle[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
-  const [cargandoMembresias, setCargandoMembresias] = useState(true)
   const [cargandoCola, setCargandoCola] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [motivoAbiertoPara, setMotivoAbiertoPara] = useState<number | null>(null)
@@ -28,18 +28,17 @@ export default function ColaComite() {
   const [enviando, setEnviando] = useState(false)
 
   useEffect(() => {
-    Promise.all([listarMiembrosCab(), listarUsuarios()])
-      .then(([membresias, todosUsuarios]) => {
-        const tipos = membresias.filter((m) => m.usuario_id === usuarioActual.id).map((m) => m.tipo_cab)
-        setMisTiposCab(tipos)
-        setUsuarios(todosUsuarios)
-        const disponibles = esAdmin ? TODOS_LOS_TIPOS : tipos
-        if (disponibles.length > 0) setTipoSeleccionado(disponibles[0])
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar tus membresías de CAB'))
-      .finally(() => setCargandoMembresias(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    listarUsuarios()
+      .then(setUsuarios)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar los usuarios'))
   }, [])
+
+  useEffect(() => {
+    if (misTiposCab === null || tipoSeleccionado) return
+    const disponibles = esAdmin ? TODOS_LOS_TIPOS : misTiposCab
+    if (disponibles.length > 0) setTipoSeleccionado(disponibles[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [misTiposCab, esAdmin])
 
   function cargarCola(tipo: TipoCAB) {
     setCargandoCola(true)
@@ -107,7 +106,7 @@ export default function ColaComite() {
     <div>
       <h1 className="page-title">Cola del comité</h1>
 
-      {error && <p className="form-error">{error}</p>}
+      {(error || errorMembresias) && <p className="form-error">{error || errorMembresias}</p>}
 
       {disponibles.length > 1 && (
         <div className="tabs-row">

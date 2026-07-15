@@ -17,6 +17,10 @@ export function obtenerUsuario(id: number): Promise<Usuario> {
   return apiGet<Usuario>(`/usuarios/${id}`)
 }
 
+export function obtenerUsuarioPorCorreo(correo: string): Promise<Usuario> {
+  return apiGet<Usuario>(`/usuarios/por-correo?correo=${encodeURIComponent(correo)}`)
+}
+
 export function crearUsuario(payload: UsuarioCreate): Promise<Usuario> {
   return apiPost<Usuario>('/usuarios', payload)
 }
