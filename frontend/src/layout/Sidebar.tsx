@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { FiCheckSquare, FiFileText, FiPlus, FiShield, FiTag, FiUsers } from 'react-icons/fi'
+import { FiBell, FiCheckSquare, FiFileText, FiPlus, FiShield, FiTag, FiUsers } from 'react-icons/fi'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 
 export default function Sidebar() {
@@ -60,6 +60,16 @@ export default function Sidebar() {
           <NavLink to="/criterios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <FiShield className="sidebar-link-icon" />
             Documentos de criterios
+          </NavLink>
+        </div>
+      )}
+
+      {esAdmin && (
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Notificaciones</div>
+          <NavLink to="/notificaciones" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <FiBell className="sidebar-link-icon" />
+            Escalamiento por inactividad
           </NavLink>
         </div>
       )}

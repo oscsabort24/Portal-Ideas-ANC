@@ -8,6 +8,7 @@ import CriteriosView from './criterios/components/CriteriosView'
 import RevisionView from './revision/components/RevisionView'
 import ClasificacionView from './clasificacion/components/ClasificacionView'
 import ColaComite from './comites/components/ColaComite'
+import NotificacionesView from './notificaciones/components/NotificacionesView'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/revision" element={<RevisionView />} />
         <Route path="/clasificacion" element={<ClasificacionView />} />
         <Route path="/comites" element={<ColaComite />} />
+        <Route path="/notificaciones" element={<NotificacionesView />} />
       </Route>
     </Routes>
   )

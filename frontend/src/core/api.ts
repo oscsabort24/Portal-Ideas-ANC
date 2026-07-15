@@ -49,6 +49,15 @@ export async function apiPostFormData<T>(path: string, formData: FormData): Prom
   return manejarRespuesta<T>(res)
 }
 
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    body: JSON.stringify(body),
+  })
+  return manejarRespuesta<T>(res)
+}
+
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: 'PATCH',
