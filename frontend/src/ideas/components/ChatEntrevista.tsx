@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useParams } from 'react-router-dom'
+import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import { enviarMensaje, obtenerIdea } from '../api'
 import type { IdeaDetalle, MensajeEntrevista } from '../types'
 import BurbujaMensaje from './BurbujaMensaje'
@@ -104,6 +105,8 @@ export default function ChatEntrevista() {
           </button>
         </div>
       </div>
+
+      <DocumentosGenerados ideaId={ideaId} />
     </div>
   )
 }
