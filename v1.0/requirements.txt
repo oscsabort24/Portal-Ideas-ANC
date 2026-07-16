@@ -26,3 +26,7 @@ python-docx==1.1.2
 # — ver https://graphviz.org/download/ (Windows) o el gestor de paquetes de
 # tu distro en Linux/macOS.
 graphviz==0.21
+
+# anthropic: SDK oficial de Claude (core/claude_client.py), usado cuando
+# CLAUDE_STUB_MODE=false.
+anthropic==0.116.0

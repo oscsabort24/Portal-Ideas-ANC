@@ -1,23 +1,117 @@
 """Cliente de la API de Claude (Anthropic).
 
-Mientras CLAUDE_STUB_MODE=true (pendiente de aprobación de presupuesto),
-generar_respuesta() devuelve una respuesta simulada con la misma forma
-que tendrá la respuesta real, para que el resto de módulos (ideas/,
-clasificacion/, revision/) puedan integrarse contra esta interfaz sin
-esperar a que la integración real esté lista.
+Mientras CLAUDE_STUB_MODE=true, generar_respuesta() devuelve una respuesta
+simulada con la misma forma que la respuesta real, para que el resto de
+módulos (ideas/, clasificacion/, revision/) puedan integrarse contra esta
+interfaz sin depender de la API real.
+
+Con CLAUDE_STUB_MODE=false, usa Structured Outputs del SDK de Anthropic
+(client.messages.parse + output_format) para garantizar JSON válido — la
+API valida la respuesta contra el schema Pydantic, en vez de confiar en
+que el modelo respete instrucciones de formato en texto libre.
 """
 
+import anthropic
+from pydantic import BaseModel
+
 from core.config import settings
+
+_client = anthropic.Anthropic(api_key=settings.claude_api_key)
+
+
+class RespuestaEntrevista(BaseModel):
+    message: str
+    entrevista_completa: bool
+    options: list[str] | None
+
+
+_CRITERIOS_ENTREVISTA = """
+━━━ 5 BLOQUES DE INFORMACIÓN (TODOS OBLIGATORIOS) ━━━
+Cúbrelos en el orden más natural según lo que la persona ya dijo — no es un
+formulario paso a paso, es una conversación.
+
+BLOQUE 1 — Problema y Alcance
+- Qué pasa hoy, qué proceso o tarea se quiere mejorar
+- Si la respuesta es vaga, pide un ejemplo concreto antes de continuar
+
+BLOQUE 2 — Objetivo Medible
+- Qué cambiaría concretamente si esto se implementa
+- Si no hay nada medible, ofrece sugerencias (ahorrar tiempo, reducir errores,
+  ahorrar dinero, mejorar experiencia) y pregunta la magnitud estimada
+
+BLOQUE 3 — Beneficios Esperados
+- Compara cuánto tiempo/costo toma el proceso HOY vs. con la idea implementada
+- Pide números aunque sean estimaciones aproximadas
+
+BLOQUE 4 — Entregables Principales
+- Qué se imagina recibiendo si esto se aprueba (reporte, alerta, sistema, etc.)
+- Este bloque es OBLIGATORIO — no marques la entrevista como completa sin él
+
+BLOQUE 5 — Riesgos y Mitigación
+- Qué podría complicar que esto funcione
+- Si la persona no ve riesgos, sugiere 2-3 típicos según el tipo de idea
+- Este bloque es OBLIGATORIO — no marques la entrevista como completa sin él
+
+━━━ REGLA DE CIERRE ━━━
+Los 5 bloques deben tener contenido SUSTANTIVO (no solo mencionados de pasada)
+para marcar entrevista_completa = true. Mientras falte alguno, sigue
+preguntando — una sola pregunta a la vez, cálido pero exigente con la
+concreción de las respuestas.
+
+IDIOMA: Siempre en español.
+""".strip()
+
+_RESPUESTA_DEGRADADA_API = {
+    "message": "Hubo un problema técnico al procesar tu respuesta. Intenta de nuevo en un momento.",
+    "entrevista_completa": False,
+    "options": None,
+    "raw": None,
+}
+
+_RESPUESTA_DEGRADADA_SIN_PARSEAR = {
+    "message": "No se pudo procesar la respuesta de la IA. Intenta de nuevo.",
+    "entrevista_completa": False,
+    "options": None,
+    "raw": None,
+}
 
 
 def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
     if settings.claude_stub_mode:
         return _respuesta_stub(mensajes, system_prompt)
 
-    raise NotImplementedError(
-        "Integración real con Claude API pendiente de aprobación de presupuesto. "
-        "Set CLAUDE_STUB_MODE=true mientras tanto."
-    )
+    mensajes_anthropic = [
+        {"role": "assistant" if m["role"] == "asistente" else "user", "content": m["content"]}
+        for m in mensajes
+    ]
+
+    try:
+        response = _client.messages.parse(
+            model=settings.claude_model,
+            max_tokens=1024,
+            system=f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}",
+            messages=mensajes_anthropic,
+            output_format=RespuestaEntrevista,
+        )
+    except anthropic.APIStatusError:
+        # Fallo real de la API (rate limit, 5xx, etc.) — no rompe la
+        # conversación, degrada a un mensaje visible para reintentar.
+        return dict(_RESPUESTA_DEGRADADA_API)
+
+    parsed = response.parsed_output
+    if parsed is None:
+        # parsed_output puede ser None si Claude no generó un bloque de
+        # texto parseable (ej. stop_reason distinto a end_turn) — ver
+        # anthropic/types/parsed_message.py, es una @property, no un campo
+        # garantizado.
+        return dict(_RESPUESTA_DEGRADADA_SIN_PARSEAR)
+
+    return {
+        "message": parsed.message,
+        "entrevista_completa": parsed.entrevista_completa,
+        "options": parsed.options,
+        "raw": None,
+    }
 
 
 def generar_contenido_documento(historial: list[dict], tipo_documento: str) -> dict:
