@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { FiDownload, FiFileText } from 'react-icons/fi'
+import { FiDownload, FiEye, FiFileText } from 'react-icons/fi'
 import { descargarDocumento, descargarZip, listarDocumentos, obtenerPendientes } from '../api'
 import { ETIQUETA_TIPO_DOCUMENTO, ORDEN_TIPOS_DOCUMENTO, type DocumentoGenerado, type TipoDocumento } from '../types'
 import SelectorGenerarDocumentos from './SelectorGenerarDocumentos'
+import VistaPreviaDocumento from './VistaPreviaDocumento'
 
 export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
   const [documentos, setDocumentos] = useState<DocumentoGenerado[]>([])
@@ -12,6 +13,7 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
   const [descargandoZip, setDescargandoZip] = useState(false)
   const [descargandoTipo, setDescargandoTipo] = useState<TipoDocumento | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [previaAbierta, setPreviaAbierta] = useState<TipoDocumento | null>(null)
 
   function cargar(marcarCargando: boolean) {
     if (marcarCargando) setCargando(true)
@@ -102,6 +104,10 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
                 </div>
 
                 <div className="persona-card-actions" style={{ marginTop: 12 }}>
+                  <button className="btn-small" onClick={() => setPreviaAbierta(doc.tipo_documento)}>
+                    <FiEye style={{ marginRight: 4 }} />
+                    Vista previa
+                  </button>
                   <button
                     className="btn-small"
                     disabled={descargandoTipo === doc.tipo_documento}
@@ -126,6 +132,10 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
 
       {pendientes.length > 0 && (
         <SelectorGenerarDocumentos ideaId={ideaId} tiposPendientes={pendientes} onGenerado={() => cargar(false)} />
+      )}
+
+      {previaAbierta && (
+        <VistaPreviaDocumento ideaId={ideaId} tipo={previaAbierta} onCerrar={() => setPreviaAbierta(null)} />
       )}
     </div>
   )

@@ -13,6 +13,13 @@ BPMN as-is/to-be se genera como diagrama visual real (cajas y flechas)
 con Graphviz — ver _generar_diagrama_bpmn. Requiere el ejecutable
 `dot` de Graphviz instalado en el sistema (no solo el paquete de
 Python); ver _asegurar_graphviz_disponible para el manejo de ese caso.
+
+Estilo visual: se replica lo más posible la misma paleta que las
+plantillas HTML (documentos/plantillas_html.py) usando shading de
+celda y color de texto vía XML de python-docx (docx.oxml) — el
+formato .docx no soporta CSS, así que esto NO es 1:1 con el HTML/PDF,
+pero comparte colores y estructura para que las tres versiones
+(preview, PDF, Word) se sientan parte del mismo sistema.
 """
 
 import os
@@ -22,18 +29,77 @@ import shutil
 import graphviz
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, RGBColor
+
+_AZUL = RGBColor(0x2E, 0x5F, 0xAA)
+_AZUL_CLARO_HEX = "EAF1FB"
+_AZUL_HEX = "2E5FAA"
+_NARANJA = RGBColor(0xE8, 0x76, 0x2C)
+_VERDE = RGBColor(0x00, 0x71, 0x3D)
+_VERDE_CLARO_HEX = "E8F5ED"
+_NARANJA_OSCURO = RGBColor(0xB4, 0x53, 0x09)
+_NARANJA_CLARO_HEX = "FEF3C7"
+_BLANCO = RGBColor(0xFF, 0xFF, 0xFF)
+
+_RACI_COLORES = {
+    "R": ("E8F4FD", RGBColor(0x2E, 0x5F, 0xAA)),
+    "A": ("FDF2EA", RGBColor(0xE8, 0x76, 0x2C)),
+    "C": (_VERDE_CLARO_HEX, _VERDE),
+    "I": ("F0F0EF", RGBColor(0x6B, 0x72, 0x80)),
+}
+
+
+def _sombrear_celda(cell, color_hex: str) -> None:
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), color_hex)
+    tcPr.append(shd)
+
+
+def _colorear_texto_celda(cell, color: RGBColor, negrita: bool = True, centrado: bool = False) -> None:
+    for parrafo in cell.paragraphs:
+        if centrado:
+            parrafo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in parrafo.runs:
+            run.font.color.rgb = color
+            run.font.bold = negrita
+
+
+def _borde_inferior(paragraph, color_hex: str, grosor: int = 18) -> None:
+    pPr = paragraph._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    borde = OxmlElement("w:bottom")
+    borde.set(qn("w:val"), "single")
+    borde.set(qn("w:sz"), str(grosor))
+    borde.set(qn("w:space"), "4")
+    borde.set(qn("w:color"), color_hex)
+    pBdr.append(borde)
+    pPr.append(pBdr)
 
 
 def _agregar_encabezado(doc: Document, titulo: str, subtitulo: str) -> None:
-    doc.add_heading(titulo, level=0)
+    p_titulo = doc.add_heading(titulo, level=0)
+    for run in p_titulo.runs:
+        run.font.color.rgb = _AZUL
+    _borde_inferior(p_titulo, _AZUL_HEX, grosor=24)
+
     p = doc.add_paragraph(subtitulo)
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for run in p.runs:
+        run.font.color.rgb = _NARANJA
+        run.font.bold = True
     doc.add_paragraph()
 
 
 def _seccion(doc: Document, titulo: str, contenido: str) -> None:
-    doc.add_heading(titulo, level=1)
+    p_titulo = doc.add_heading(titulo, level=1)
+    for run in p_titulo.runs:
+        run.font.color.rgb = _AZUL
+    _borde_inferior(p_titulo, _AZUL_CLARO_HEX)
     doc.add_paragraph(contenido or "Pendiente de definir")
 
 
@@ -56,6 +122,8 @@ def generar_charter_docx(datos: dict, ruta_salida: str) -> None:
         fila = tabla_meta.add_row().cells
         fila[0].text = etiqueta
         fila[1].text = datos.get(clave) or default
+        _sombrear_celda(fila[0], _AZUL_CLARO_HEX)
+        _colorear_texto_celda(fila[0], _AZUL)
     doc.add_paragraph()
 
     _seccion(doc, "Justificación y Alcance del Proyecto", datos.get("justificacion_alcance"))
@@ -63,7 +131,11 @@ def generar_charter_docx(datos: dict, ruta_salida: str) -> None:
     _seccion(doc, "Beneficios Esperados", datos.get("beneficios_esperados"))
     _seccion(doc, "Principales Entregables", datos.get("principales_entregables"))
 
-    doc.add_heading("Riesgos Identificados", level=1)
+    p_titulo_riesgos = doc.add_heading("Riesgos Identificados", level=1)
+    for run in p_titulo_riesgos.runs:
+        run.font.color.rgb = _AZUL
+    _borde_inferior(p_titulo_riesgos, _AZUL_CLARO_HEX)
+
     riesgos = datos.get("riesgos_identificados") or []
     if riesgos:
         tabla_riesgos = doc.add_table(rows=1, cols=2)
@@ -71,15 +143,26 @@ def generar_charter_docx(datos: dict, ruta_salida: str) -> None:
         encabezado = tabla_riesgos.rows[0].cells
         encabezado[0].text = "Riesgo identificado"
         encabezado[1].text = "Estrategia de mitigación"
-        for r in riesgos:
+        for celda in encabezado:
+            _sombrear_celda(celda, _AZUL_HEX)
+            _colorear_texto_celda(celda, _BLANCO)
+        for i, r in enumerate(riesgos):
             fila = tabla_riesgos.add_row().cells
             fila[0].text = r.get("riesgo") or "Pendiente de definir"
             fila[1].text = r.get("mitigacion") or "Pendiente de definir"
+            if i % 2 == 1:
+                for celda in fila:
+                    _sombrear_celda(celda, _AZUL_CLARO_HEX)
     else:
         doc.add_paragraph("Pendiente de definir")
 
     doc.add_paragraph()
-    doc.add_paragraph(f"Estado del documento: {datos.get('estado') or '—'}")
+    p_estado = doc.add_paragraph()
+    p_estado.add_run("Estado del documento: ").bold = True
+    estado_texto = datos.get("estado") or "—"
+    run_estado = p_estado.add_run(estado_texto)
+    run_estado.bold = True
+    run_estado.font.color.rgb = _VERDE if "listo" in estado_texto.lower() else _NARANJA_OSCURO
 
     doc.save(ruta_salida)
 
@@ -202,16 +285,30 @@ def generar_onepager_docx(datos: dict, ruta_salida: str) -> None:
     _seccion(doc, "El problema", datos.get("problema"))
     _seccion(doc, "La solución", datos.get("solucion"))
 
-    doc.add_heading("Beneficios esperados", level=1)
+    p_titulo_beneficios = doc.add_heading("Beneficios esperados", level=1)
+    for run in p_titulo_beneficios.runs:
+        run.font.color.rgb = _AZUL
+    _borde_inferior(p_titulo_beneficios, _AZUL_CLARO_HEX)
+
     beneficios = datos.get("beneficios") or []
     if beneficios:
         for b in beneficios:
-            doc.add_paragraph(b, style="List Bullet")
+            p_beneficio = doc.add_paragraph(style="List Bullet")
+            run = p_beneficio.add_run(b)
+            run.font.color.rgb = _VERDE
+            run.font.bold = True
     else:
         doc.add_paragraph("No especificados")
 
-    doc.add_paragraph(f"Impacto: {datos.get('impacto') or 'Por definir'}")
-    doc.add_paragraph(f"Esfuerzo: {datos.get('esfuerzo') or 'Por definir'}")
+    tabla_impacto = doc.add_table(rows=0, cols=2)
+    tabla_impacto.style = "Table Grid"
+    for etiqueta, clave in [("Impacto", "impacto"), ("Esfuerzo", "esfuerzo")]:
+        fila = tabla_impacto.add_row().cells
+        fila[0].text = etiqueta
+        fila[1].text = datos.get(clave) or "Por definir"
+        _sombrear_celda(fila[0], _AZUL_CLARO_HEX)
+        _colorear_texto_celda(fila[0], _AZUL)
+    doc.add_paragraph()
 
     _seccion(doc, "Próximo paso recomendado", datos.get("proximo_paso"))
 
@@ -233,19 +330,36 @@ def generar_raci_docx(datos: dict, ruta_salida: str) -> None:
     encabezado[0].text = "Actividad"
     for i, rol in enumerate(roles, start=1):
         encabezado[i].text = rol
+    for celda in encabezado:
+        _sombrear_celda(celda, _AZUL_HEX)
+        _colorear_texto_celda(celda, _BLANCO, centrado=True)
 
     for a in actividades:
         fila = tabla.add_row().cells
         fila[0].text = a.get("actividad") or "Pendiente de definir"
         valores_rol = a.get("roles") or {}
         for i, rol in enumerate(roles, start=1):
-            fila[i].text = valores_rol.get(rol) or "—"
+            valor = valores_rol.get(rol)
+            fila[i].text = valor or "—"
+            if valor and valor in _RACI_COLORES:
+                color_hex, color_rgb = _RACI_COLORES[valor]
+                _sombrear_celda(fila[i], color_hex)
+                _colorear_texto_celda(fila[i], color_rgb, centrado=True)
 
     doc.add_paragraph()
-    doc.add_heading("Leyenda", level=1)
+    p_titulo_leyenda = doc.add_heading("Leyenda", level=1)
+    for run in p_titulo_leyenda.runs:
+        run.font.color.rgb = _AZUL
+    _borde_inferior(p_titulo_leyenda, _AZUL_CLARO_HEX)
+
     leyenda = datos.get("leyenda") or {}
     for clave, descripcion in leyenda.items():
-        doc.add_paragraph(f"{clave}: {descripcion}", style="List Bullet")
+        p_leyenda = doc.add_paragraph(style="List Bullet")
+        run_clave = p_leyenda.add_run(f"{clave}: ")
+        run_clave.bold = True
+        if clave in _RACI_COLORES:
+            run_clave.font.color.rgb = _RACI_COLORES[clave][1]
+        p_leyenda.add_run(descripcion)
 
     doc.save(ruta_salida)
 
@@ -283,7 +397,11 @@ def generar_business_case_docx(datos: dict, ruta_salida: str) -> None:
     _seccion(doc, "El problema", datos.get("problema"))
     _seccion(doc, "Solución propuesta", datos.get("solucion_propuesta"))
 
-    doc.add_heading("Métricas financieras", level=1)
+    p_titulo_metricas = doc.add_heading("Métricas financieras", level=1)
+    for run in p_titulo_metricas.runs:
+        run.font.color.rgb = _AZUL
+    _borde_inferior(p_titulo_metricas, _AZUL_CLARO_HEX)
+
     tabla = doc.add_table(rows=0, cols=2)
     tabla.style = "Table Grid"
     for etiqueta, clave in [
@@ -295,8 +413,14 @@ def generar_business_case_docx(datos: dict, ruta_salida: str) -> None:
         fila = tabla.add_row().cells
         fila[0].text = etiqueta
         fila[1].text = datos.get(clave) or "Por definir"
+        _sombrear_celda(fila[0], _AZUL_CLARO_HEX)
+        _colorear_texto_celda(fila[0], _AZUL)
 
-    doc.add_heading("Supuestos", level=1)
+    p_titulo_supuestos = doc.add_heading("Supuestos", level=1)
+    for run in p_titulo_supuestos.runs:
+        run.font.color.rgb = _AZUL
+    _borde_inferior(p_titulo_supuestos, _AZUL_CLARO_HEX)
+
     supuestos = datos.get("supuestos") or []
     if supuestos:
         for s in supuestos:
@@ -305,7 +429,14 @@ def generar_business_case_docx(datos: dict, ruta_salida: str) -> None:
         doc.add_paragraph("No especificados")
 
     doc.add_paragraph()
-    doc.add_paragraph(f"Recomendación: {datos.get('recomendacion') or 'Pendiente de análisis'}")
+    p_recomendacion = doc.add_paragraph()
+    p_recomendacion.add_run("Recomendación: ").bold = True
+    recomendacion_texto = datos.get("recomendacion") or "Pendiente de análisis"
+    run_recomendacion = p_recomendacion.add_run(recomendacion_texto)
+    run_recomendacion.bold = True
+    texto_lower = recomendacion_texto.lower()
+    es_go = texto_lower.startswith("go") and not texto_lower.startswith("no go")
+    run_recomendacion.font.color.rgb = _VERDE if es_go else _NARANJA_OSCURO
 
     doc.save(ruta_salida)
 

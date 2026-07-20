@@ -4,7 +4,7 @@ import zipfile
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from comites.models import ComiteIdea, EstadoComite
@@ -12,6 +12,8 @@ from core.database import get_db
 from documentos import schemas
 from documentos.archivos import sanitizar_nombre_archivo
 from documentos.models import DocumentoGenerado, TipoDocumento
+from documentos.pdf import html_a_pdf_bytes
+from documentos.plantillas_html import renderizar_documento
 from documentos.service import generar_documentos_para_tipos
 from ideas.models import Idea
 from usuarios import models as usuarios_models
@@ -102,6 +104,56 @@ def descargar_documento(
         documento.ruta_archivo,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         filename=nombre_archivo,
+    )
+
+
+def _obtener_documento(db: Session, idea_id: int, tipo_documento: TipoDocumento) -> DocumentoGenerado:
+    documento = (
+        db.query(DocumentoGenerado)
+        .filter_by(idea_id=idea_id, tipo_documento=tipo_documento)
+        .first()
+    )
+    if not documento:
+        raise HTTPException(status_code=404, detail="Este documento no ha sido generado para esta idea")
+    return documento
+
+
+@router.get("/{idea_id}/{tipo_documento}/preview", response_class=HTMLResponse)
+def preview_documento(
+    idea_id: int,
+    tipo_documento: TipoDocumento,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    idea = _obtener_idea(db, idea_id)
+    _validar_acceso(db, idea, usuario_actual)
+
+    documento = _obtener_documento(db, idea_id, tipo_documento)
+    html = renderizar_documento(tipo_documento.value, json.loads(documento.contenido))
+    return HTMLResponse(content=html)
+
+
+@router.get("/{idea_id}/{tipo_documento}/pdf")
+def descargar_pdf(
+    idea_id: int,
+    tipo_documento: TipoDocumento,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    idea = _obtener_idea(db, idea_id)
+    _validar_acceso(db, idea, usuario_actual)
+
+    documento = _obtener_documento(db, idea_id, tipo_documento)
+    html = renderizar_documento(tipo_documento.value, json.loads(documento.contenido))
+    pdf_bytes = html_a_pdf_bytes(html)
+
+    nombre_pdf = f"{sanitizar_nombre_archivo(idea.titulo)} - {tipo_documento.value}.pdf"
+    nombre_ascii = nombre_pdf.encode("ascii", "ignore").decode("ascii") or "documento.pdf"
+    content_disposition = f"attachment; filename=\"{nombre_ascii}\"; filename*=UTF-8''{quote(nombre_pdf)}"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition},
     )
 
 

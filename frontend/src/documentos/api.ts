@@ -16,6 +16,19 @@ export function generarDocumentos(ideaId: number, tipos: TipoDocumento[]): Promi
   return apiPost<DocumentoGenerado[]>(`/documentos/${ideaId}/generar`, { tipos })
 }
 
+// No se usa apiGet: la respuesta es HTML crudo (text/html), no JSON — y un
+// <iframe src="..."> no puede mandar el header X-Usuario-Id, por eso se trae
+// el HTML acá y se inyecta al iframe vía srcDoc (ver VistaPreviaDocumento.tsx).
+export async function obtenerPreviewHtml(ideaId: number, tipo: TipoDocumento): Promise<string> {
+  const res = await fetch(`${API_URL}/documentos/${ideaId}/${tipo}/preview`, {
+    headers: { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+  })
+  if (!res.ok) {
+    throw new Error(await extraerMensajeError(res))
+  }
+  return res.text()
+}
+
 async function extraerMensajeError(res: Response): Promise<string> {
   const cuerpo = await res.text()
   try {
@@ -68,6 +81,10 @@ async function descargarBlob(path: string, init: RequestInit, fallback: string):
 
 export function descargarDocumento(ideaId: number, tipo: TipoDocumento): Promise<void> {
   return descargarBlob(`/documentos/${ideaId}/${tipo}/descargar`, {}, `${tipo}.docx`)
+}
+
+export function descargarPdf(ideaId: number, tipo: TipoDocumento): Promise<void> {
+  return descargarBlob(`/documentos/${ideaId}/${tipo}/pdf`, {}, `${tipo}.pdf`)
 }
 
 export function descargarZip(ideaId: number, tipos: TipoDocumento[]): Promise<void> {

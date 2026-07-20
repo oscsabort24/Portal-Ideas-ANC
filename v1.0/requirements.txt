@@ -30,3 +30,14 @@ graphviz==0.21
 # anthropic: SDK oficial de Claude (core/claude_client.py), usado cuando
 # CLAUDE_STUB_MODE=false.
 anthropic==0.116.0
+
+# jinja2: plantillas HTML de los 6 documentos formales (documentos/plantillas_html.py),
+# usadas para /preview, generación de PDF (Playwright) y como referencia visual
+# para los generadores .docx.
+jinja2==3.1.6
+
+# playwright: renderiza las plantillas HTML a PDF con Chromium headless
+# (documentos/pdf.py). Requiere además "playwright install chromium" una
+# vez por entorno — no alcanza con el paquete Python solo (mismo tipo de
+# paso adicional que "dot" de Graphviz, pero sin permisos de administrador).
+playwright==1.61.0
