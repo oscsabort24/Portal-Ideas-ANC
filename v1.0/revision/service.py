@@ -7,10 +7,10 @@ corresponde revisarla — considerando también, si existe, una sugerencia
 opcional del autor (ver asignar_revisor_ia en core/claude_client.py).
 
 Si la IA falla por cualquier motivo, o si el departamento que sugiere no
-tiene ningún encargado_area activo, se cae al comportamiento original:
-mismo departamento del autor. Si tampoco hay nadie ahí, la idea queda
-"pendiente_asignacion" para que un admin la asigne manualmente. Esto
-NUNCA debe romper el envío de la idea.
+tiene ningún usuario con rol habilitado para revisar activo, se cae al
+comportamiento original: mismo departamento del autor. Si tampoco hay
+nadie ahí, la idea queda "pendiente_asignacion" para que un admin la
+asigne manualmente. Esto NUNCA debe romper el envío de la idea.
 """
 
 import logging
@@ -24,6 +24,11 @@ from revision.models import EstadoRevision, RevisionIdea
 from usuarios.models import Departamento, RolUsuario, Usuario
 
 logger = logging.getLogger(__name__)
+
+# encargado_area, gerente y admin están todos habilitados para revisar
+# ideas — no es exclusivo de encargado_area. Mismo criterio usado en
+# revision/router.py:_validar_revisor_destino (asignar/reasignar manual).
+ROLES_HABILITADOS_REVISOR = (RolUsuario.encargado_area, RolUsuario.gerente, RolUsuario.admin)
 
 
 def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
@@ -41,7 +46,7 @@ def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | Non
         db.query(Usuario)
         .filter(
             Usuario.departamento_id == departamento_id,
-            Usuario.rol == RolUsuario.encargado_area,
+            Usuario.rol.in_(ROLES_HABILITADOS_REVISOR),
             Usuario.activo == True,  # noqa: E712
         )
         .first()
@@ -93,7 +98,7 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
     if revisor is None and idea.autor.departamento_id is not None:
         # Fallback: mismo departamento del autor (comportamiento original),
         # ya sea porque la IA falló o porque el departamento que sugirió no
-        # tiene ningún encargado_area activo todavía.
+        # tiene ningún usuario con rol habilitado para revisar activo todavía.
         revisor = _buscar_encargado_activo(db, idea.autor.departamento_id)
 
     ahora = datetime.now(timezone.utc)

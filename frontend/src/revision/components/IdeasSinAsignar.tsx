@@ -27,7 +27,10 @@ export default function IdeasSinAsignar() {
     return usuarios.find((u) => u.id === autorId)?.nombre ?? '—'
   }
 
-  const encargadosActivos = usuarios.filter((u) => u.rol === 'encargado_area' && u.activo)
+  // encargado_area, gerente y admin estan todos habilitados para revisar.
+  const encargadosActivos = usuarios.filter(
+    (u) => (u.rol === 'encargado_area' || u.rol === 'gerente' || u.rol === 'admin') && u.activo,
+  )
 
   async function handleAsignar(revision: RevisionDetalle) {
     const revisorId = seleccion[revision.id]

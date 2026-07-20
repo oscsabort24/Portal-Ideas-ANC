@@ -14,15 +14,21 @@ from usuarios.dependencies import obtener_usuario_actual, requerir_admin
 
 router = APIRouter(prefix="/revision", tags=["revision"])
 
+ROLES_HABILITADOS_REVISOR = (
+    usuarios_models.RolUsuario.encargado_area,
+    usuarios_models.RolUsuario.gerente,
+    usuarios_models.RolUsuario.admin,
+)
+
 
 def _validar_revisor_destino(db: Session, revisor_id: int) -> usuarios_models.Usuario:
     revisor = db.get(usuarios_models.Usuario, revisor_id)
     if not revisor:
         raise HTTPException(status_code=404, detail="El usuario destino no existe")
-    if revisor.rol != usuarios_models.RolUsuario.encargado_area:
+    if revisor.rol not in ROLES_HABILITADOS_REVISOR:
         raise HTTPException(
             status_code=400,
-            detail=f"'{revisor.nombre}' no tiene rol encargado_area, no puede ser revisor",
+            detail=f"'{revisor.nombre}' no tiene un rol habilitado para revisar",
         )
     if not revisor.activo:
         raise HTTPException(status_code=400, detail=f"'{revisor.nombre}' no puede ser revisor: está inactivo")
@@ -34,14 +40,13 @@ def mis_revisiones(
     db: Session = Depends(get_db),
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
-    return (
-        db.query(RevisionIdea)
-        .filter(
-            RevisionIdea.revisor_id == usuario_actual.id,
-            RevisionIdea.estado == EstadoRevision.pendiente_revision,
-        )
-        .all()
-    )
+    # Mismo patrón de "admin ve todo" que GET /ideas: un admin ve TODAS las
+    # revisiones pendientes (no solo las suyas), para poder actuar sobre
+    # cualquiera vía el atajo de admin en _validar_revisor_asignado.
+    query = db.query(RevisionIdea).filter(RevisionIdea.estado == EstadoRevision.pendiente_revision)
+    if usuario_actual.rol != usuarios_models.RolUsuario.admin:
+        query = query.filter(RevisionIdea.revisor_id == usuario_actual.id)
+    return query.all()
 
 
 @router.get("/sin-asignar", response_model=list[schemas.RevisionDetalleOut])
@@ -84,6 +89,12 @@ def asignar(
 
 
 def _validar_revisor_asignado(revision: RevisionIdea, usuario_actual: usuarios_models.Usuario) -> None:
+    # Atajo de admin: mismo patrón que comites/router.py:_validar_acceso_comite.
+    # Permite a un admin actuar sobre una revisión asignada a alguien que no
+    # puede hacerlo (usuario de prueba, inactivo, de vacaciones, etc.), sin
+    # tener que reasignarla primero solo para poder resolverla.
+    if usuario_actual.rol == usuarios_models.RolUsuario.admin:
+        return
     if revision.revisor_id != usuario_actual.id:
         raise HTTPException(status_code=403, detail="No eres el revisor asignado a esta idea")
 

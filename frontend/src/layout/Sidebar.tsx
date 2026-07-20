@@ -6,7 +6,7 @@ import { useEsMiembroCab } from '../usuarios/hooks/useEsMiembroCab'
 export default function Sidebar() {
   const usuarioActual = useUsuarioActual()
   const esAdmin = usuarioActual.rol === 'admin'
-  const puedeRevisar = esAdmin || usuarioActual.rol === 'encargado_area'
+  const puedeRevisar = esAdmin || usuarioActual.rol === 'encargado_area' || usuarioActual.rol === 'gerente'
   const { esMiembro: esMiembroCab } = useEsMiembroCab()
 
   return (

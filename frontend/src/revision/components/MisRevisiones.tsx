@@ -37,8 +37,12 @@ export default function MisRevisiones() {
     return usuarios.find((u) => u.id === autorId)?.nombre ?? '—'
   }
 
+  // encargado_area, gerente y admin estan todos habilitados para revisar.
   const encargadosActivos = usuarios.filter(
-    (u) => u.rol === 'encargado_area' && u.activo && u.id !== usuarioActual.id
+    (u) =>
+      (u.rol === 'encargado_area' || u.rol === 'gerente' || u.rol === 'admin') &&
+      u.activo &&
+      u.id !== usuarioActual.id,
   )
 
   function cerrarAccion() {
@@ -108,7 +112,14 @@ export default function MisRevisiones() {
                 <div className="idea-card-title-row">
                   <FiFileText className="idea-card-icon idea-card-icon-enviada" />
                   <div>
-                    <div className="idea-card-title">{r.idea.titulo}</div>
+                    <div className="idea-card-title">
+                      {r.idea.titulo}
+                      {r.revisor_id !== null && r.revisor_id !== usuarioActual.id && (
+                        <span className="idea-estado-badge" style={{ marginLeft: 8 }}>
+                          Asignada a: {r.revisor?.nombre ?? '—'}
+                        </span>
+                      )}
+                    </div>
                     <div className="idea-card-date">
                       De {nombreAutor(r.idea.autor_id)} — enviada el{' '}
                       {r.idea.fecha_envio ? new Date(r.idea.fecha_envio).toLocaleDateString('es-CR') : '—'}
