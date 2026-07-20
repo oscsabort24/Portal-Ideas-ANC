@@ -22,6 +22,9 @@ class RevisionOut(BaseModel):
     retroalimentacion: str | None
     fecha_asignacion: datetime | None
     fecha_resolucion: datetime | None
+    departamento_sugerido_ia_id: int | None
+    justificacion_ia: str | None
+    acepto_sugerencia_autor: bool | None
 
 
 class RevisionDetalleOut(RevisionOut):

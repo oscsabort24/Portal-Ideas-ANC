@@ -32,6 +32,14 @@ class Idea(Base):
     autor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
     autor: Mapped["Usuario"] = relationship()
 
+    # Sugerencia OPCIONAL del autor de a quién le gustaría que revisara la
+    # idea — capturada en cualquier mensaje de la entrevista (ver
+    # ideas/router.py:enviar_mensaje) y usada como contexto adicional por
+    # asignar_revisor_ia() en revision/service.py. La IA la considera pero
+    # no la sigue ciegamente.
+    sugerencia_revisor_autor: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    motivo_sugerencia_revisor_autor: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     fecha_creacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

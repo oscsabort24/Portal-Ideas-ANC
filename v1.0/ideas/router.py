@@ -76,6 +76,13 @@ def enviar_mensaje(
         if not revision or revision.estado != EstadoRevision.cambios_solicitados:
             raise HTTPException(status_code=400, detail="La idea ya fue enviada, no admite más mensajes")
 
+    # Solo sobrescribe si el autor mandó algo esta vez — si el campo viene
+    # vacío en un mensaje posterior, no debe borrar un valor ya guardado.
+    if payload.sugerencia_revisor_autor is not None:
+        idea.sugerencia_revisor_autor = payload.sugerencia_revisor_autor
+    if payload.motivo_sugerencia_revisor_autor is not None:
+        idea.motivo_sugerencia_revisor_autor = payload.motivo_sugerencia_revisor_autor
+
     orden_usuario = siguiente_orden(db, idea_id)
     mensaje_usuario = MensajeEntrevista(
         idea_id=idea_id, rol=RolMensaje.usuario, contenido=payload.contenido, orden=orden_usuario

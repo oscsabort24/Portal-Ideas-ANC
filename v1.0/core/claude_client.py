@@ -12,9 +12,10 @@ que el modelo respete instrucciones de formato en texto libre.
 """
 
 import logging
+from typing import Literal
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 
 from core.config import settings
 from usuarios.models import TipoCAB
@@ -354,6 +355,112 @@ def clasificar_idea(historial: list[dict], criterio_texto: str) -> dict | None:
         return None
 
     return {"clasificacion": parsed.clasificacion, "justificacion": parsed.justificacion}
+
+
+_CRITERIOS_ASIGNACION_REVISOR = """
+Analiza el CONTENIDO de esta idea (no el departamento de quien la escribió)
+y decide a qué departamento de la lista dada le corresponde revisarla por
+tema/materia.
+
+Si se te da una sugerencia del autor sobre quién debería revisarla,
+CONSIDÉRALA como una señal más, pero no la sigas ciegamente — evalúa si el
+departamento que sugiere (o que se infiere de su sugerencia) realmente
+coincide con el contenido de la idea. Puedes aceptarla o proponer otro
+departamento con tu propia justificación.
+
+Da una justificación breve y concreta, basada en el contenido real de la
+entrevista.
+
+IDIOMA: Siempre en español.
+""".strip()
+
+
+def asignar_revisor_ia(
+    historial: list[dict],
+    titulo: str,
+    sugerencia_autor: str | None,
+    motivo_autor: str | None,
+    nombres_departamentos: list[str],
+) -> dict | None:
+    """Sugiere a qué departamento le corresponde revisar una idea, a partir
+    de su contenido real (no de la regla simple "mismo departamento del
+    autor"). Devuelve None si la API falla o la respuesta no se puede
+    parsear — el caller (revision/service.py) debe interpretar eso como
+    "usa el fallback de mismo departamento del autor", nunca debe romper
+    el envío de la idea.
+
+    `acepto_sugerencia_autor` en el dict devuelto solo es significativo si
+    `sugerencia_autor` no era None — el caller es responsable de forzarlo
+    a None en BD cuando no hubo ninguna sugerencia que evaluar.
+    """
+    if settings.claude_stub_mode:
+        return {
+            "departamento": nombres_departamentos[0] if nombres_departamentos else None,
+            "justificacion": "[STUB] asignación simulada",
+            "acepto_sugerencia_autor": sugerencia_autor is not None,
+        }
+
+    if not nombres_departamentos:
+        return None
+
+    # Modelo Pydantic dinámico: el campo `departamento` queda restringido
+    # (via Literal) a EXACTAMENTE los nombres de departamento recibidos,
+    # igual que TipoCAB restringe `clasificacion` en clasificar_idea — así
+    # la API garantiza estructuralmente que la IA no invente un
+    # departamento que no existe.
+    AsignacionRevisorResultado = create_model(
+        "AsignacionRevisorResultado",
+        departamento=(Literal[tuple(nombres_departamentos)], ...),
+        justificacion=(str, ...),
+        acepto_sugerencia_autor=(bool, ...),
+    )
+
+    transcripcion = "\n\n".join(
+        f"{'Asistente' if m['role'] == 'asistente' else 'Usuario'}: {m['content']}"
+        for m in historial
+    ) or "(sin mensajes de entrevista registrados)"
+
+    bloque_sugerencia = (
+        f"Sugerencia del autor sobre quién debería revisarla: {sugerencia_autor}\n"
+        f"Motivo dado por el autor: {motivo_autor or '(sin motivo dado)'}\n\n"
+        if sugerencia_autor
+        else "El autor no dio ninguna sugerencia de revisor.\n\n"
+    )
+
+    mensajes_anthropic = [
+        {
+            "role": "user",
+            "content": (
+                f"Título de la idea: {titulo}\n\n"
+                f"Departamentos disponibles: {', '.join(nombres_departamentos)}\n\n"
+                f"{bloque_sugerencia}"
+                f"Historial completo de la entrevista:\n\n{transcripcion}"
+            ),
+        }
+    ]
+
+    try:
+        response = _client.messages.parse(
+            model=settings.claude_model,
+            max_tokens=1024,
+            system=_CRITERIOS_ASIGNACION_REVISOR,
+            messages=mensajes_anthropic,
+            output_format=AsignacionRevisorResultado,
+        )
+    except anthropic.APIStatusError as exc:
+        logger.error("asignar_revisor_ia: fallo de API: %s", exc)
+        return None
+
+    parsed = response.parsed_output
+    if parsed is None:
+        logger.error("asignar_revisor_ia: la respuesta no se pudo parsear contra el schema esperado")
+        return None
+
+    return {
+        "departamento": parsed.departamento,
+        "justificacion": parsed.justificacion,
+        "acepto_sugerencia_autor": parsed.acepto_sugerencia_autor,
+    }
 
 
 TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3

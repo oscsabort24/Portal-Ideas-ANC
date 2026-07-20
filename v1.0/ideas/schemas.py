@@ -13,6 +13,11 @@ class IdeaCreate(BaseModel):
 
 class MensajeEntrevistaCreate(BaseModel):
     contenido: str
+    # Sugerencia OPCIONAL del autor de quién debería revisar la idea. Si se
+    # omite (None) en un mensaje, NO borra un valor ya guardado en un
+    # mensaje anterior — ver ideas/router.py:enviar_mensaje.
+    sugerencia_revisor_autor: str | None = None
+    motivo_sugerencia_revisor_autor: str | None = None
 
 
 class MensajeEntrevistaOut(BaseModel):
@@ -33,6 +38,8 @@ class IdeaOut(BaseModel):
     descripcion: str | None
     estado: EstadoIdea
     autor_id: int
+    sugerencia_revisor_autor: str | None
+    motivo_sugerencia_revisor_autor: str | None
     fecha_creacion: datetime
     fecha_actualizacion: datetime
     fecha_envio: datetime | None
