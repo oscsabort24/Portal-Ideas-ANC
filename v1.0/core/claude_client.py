@@ -11,10 +11,15 @@ API valida la respuesta contra el schema Pydantic, en vez de confiar en
 que el modelo respete instrucciones de formato en texto libre.
 """
 
+import logging
+
 import anthropic
 from pydantic import BaseModel
 
 from core.config import settings
+from usuarios.models import TipoCAB
+
+logger = logging.getLogger(__name__)
 
 _client = anthropic.Anthropic(api_key=settings.claude_api_key)
 
@@ -265,7 +270,7 @@ def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dic
         # `.get(clave) or "Pendiente de definir"` en cada campo, así que un
         # dict vacío por tipo es un fallback seguro — el .docx sale con
         # los campos narrativos marcados como pendientes, no rompe nada.
-        print(f"[claude_client] generar_contenido_documentos: fallo de API: {exc}")
+        logger.error("generar_contenido_documentos: fallo de API: %s", exc)
         return {tipo: {} for tipo in tipos}
 
     parsed = response.parsed_output
@@ -277,6 +282,78 @@ def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dic
         sub_modelo = getattr(parsed, tipo, None)
         resultado[tipo] = sub_modelo.model_dump() if sub_modelo else {}
     return resultado
+
+
+class ClasificacionResultado(BaseModel):
+    clasificacion: TipoCAB
+    justificacion: str
+
+
+_CRITERIOS_CLASIFICACION_BASE = """
+Clasifica la idea, a partir del historial completo de su entrevista, en
+UNA de estas dos categorías (usa exactamente el criterio de negocio que
+te doy a continuación, no inventes otro):
+
+- innovacion: ideas de nuevo negocio, nuevas oportunidades, reinventar
+  algo — NO es a nivel de proceso interno.
+- transformacion_digital: optimizar, digitalizar, transformar, integrar
+  o automatizar algo que YA EXISTE en la operación.
+
+Da también una justificación breve y concreta de por qué elegiste esa
+categoría, basada en el contenido real de la entrevista.
+
+IDIOMA: Siempre en español.
+""".strip()
+
+
+def clasificar_idea(historial: list[dict], criterio_texto: str) -> dict | None:
+    """Clasifica una idea (innovacion vs transformacion_digital) con Structured
+    Outputs, a partir del historial de entrevista y el texto del documento de
+    criterios activo (subido por Armando vía criterios/).
+
+    Devuelve None si la llamada a la API falla — el caller
+    (clasificacion/service.py) debe interpretar eso como "no se pudo
+    clasificar automáticamente" y dejar la idea pendiente_clasificacion
+    para que un admin la clasifique manualmente. Nunca lanza para un fallo
+    de API: eso rompería la transacción de revision/router.py:aprobar, que
+    SIEMPRE debe tener éxito aunque la clasificación automática falle.
+    """
+    if settings.claude_stub_mode:
+        return {"clasificacion": TipoCAB.transformacion_digital, "justificacion": "[STUB] clasificación simulada"}
+
+    transcripcion = "\n\n".join(
+        f"{'Asistente' if m['role'] == 'asistente' else 'Usuario'}: {m['content']}"
+        for m in historial
+    ) or "(sin mensajes de entrevista registrados)"
+
+    mensajes_anthropic = [
+        {
+            "role": "user",
+            "content": (
+                f"Criterio de clasificación definido por el negocio:\n\n{criterio_texto}\n\n"
+                f"Historial completo de la entrevista:\n\n{transcripcion}"
+            ),
+        }
+    ]
+
+    try:
+        response = _client.messages.parse(
+            model=settings.claude_model,
+            max_tokens=1024,
+            system=_CRITERIOS_CLASIFICACION_BASE,
+            messages=mensajes_anthropic,
+            output_format=ClasificacionResultado,
+        )
+    except anthropic.APIStatusError as exc:
+        logger.error("clasificar_idea: fallo de API: %s", exc)
+        return None
+
+    parsed = response.parsed_output
+    if parsed is None:
+        logger.error("clasificar_idea: la respuesta no se pudo parsear contra el schema esperado")
+        return None
+
+    return {"clasificacion": parsed.clasificacion, "justificacion": parsed.justificacion}
 
 
 TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3
