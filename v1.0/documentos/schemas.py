@@ -17,3 +17,12 @@ class DocumentoGeneradoOut(BaseModel):
 
 class DescargarZipRequest(BaseModel):
     tipos: list[TipoDocumento]
+
+
+class GenerarDocumentosRequest(BaseModel):
+    tipos: list[TipoDocumento]
+
+
+class PendientesOut(BaseModel):
+    generados: list[TipoDocumento]
+    pendientes: list[TipoDocumento]

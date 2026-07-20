@@ -25,3 +25,8 @@ export const ORDEN_TIPOS_DOCUMENTO: TipoDocumento[] = [
   'bmc',
   'business_case',
 ]
+
+export interface PendientesDocumentos {
+  generados: TipoDocumento[]
+  pendientes: TipoDocumento[]
+}

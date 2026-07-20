@@ -114,22 +114,169 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
     }
 
 
-def generar_contenido_documento(historial: list[dict], tipo_documento: str) -> dict:
-    """Genera los campos NARRATIVOS de uno de los 6 documentos formales.
+class RiesgoItem(BaseModel):
+    riesgo: str
+    mitigacion: str
+
+
+class PasoProceso(BaseModel):
+    actor: str
+    accion: str
+    tipo: str
+
+
+class CharterContenido(BaseModel):
+    justificacion_alcance: str
+    objetivos: str
+    beneficios_esperados: str
+    principales_entregables: str
+    riesgos_identificados: list[RiesgoItem]
+    estado: str
+
+
+class BpmnContenido(BaseModel):
+    descripcion: str
+    actores: list[str]
+    pasos_as_is: list[PasoProceso]
+    pasos_to_be: list[PasoProceso]
+
+
+class OnepagerContenido(BaseModel):
+    problema: str
+    solucion: str
+    beneficios: list[str]
+    impacto: str
+    esfuerzo: str
+    proximo_paso: str
+
+
+class ActividadRaci(BaseModel):
+    actividad: str
+    roles: dict[str, str]
+
+
+class RaciContenido(BaseModel):
+    actividades: list[ActividadRaci]
+    leyenda: dict[str, str]
+
+
+class BmcContenido(BaseModel):
+    segmentos_clientes: str
+    propuesta_valor: str
+    canales: str
+    relaciones_clientes: str
+    fuentes_ingreso: str
+    recursos_clave: str
+    actividades_clave: str
+    socios_clave: str
+    estructura_costos: str
+
+
+class BusinessCaseContenido(BaseModel):
+    resumen_ejecutivo: str
+    problema: str
+    solucion_propuesta: str
+    costo_estimado: str
+    beneficio_estimado: str
+    roi_estimado: str
+    payback_estimado: str
+    supuestos: list[str]
+    recomendacion: str
+
+
+class ContenidoDocumentosMultiple(BaseModel):
+    """Wrapper con un sub-modelo opcional por tipo de documento.
+
+    Todos los campos son opcionales porque una misma llamada puede pedir
+    1, varios, o los 6 tipos a la vez — Claude deja en null los que no
+    se pidieron. El filtro final de "solo devolver lo pedido" es en
+    código (ver generar_contenido_documentos), no se confía en que el
+    modelo respete esa instrucción del prompt.
+    """
+
+    charter: CharterContenido | None = None
+    bpmn: BpmnContenido | None = None
+    onepager: OnepagerContenido | None = None
+    raci: RaciContenido | None = None
+    bmc: BmcContenido | None = None
+    business_case: BusinessCaseContenido | None = None
+
+
+_CRITERIOS_DOCUMENTOS = """
+Redacta ÚNICAMENTE los campos narrativos (no estructurales) de cada tipo de
+documento solicitado, a partir del historial completo de la entrevista.
+Deja en null cualquier tipo de documento que NO esté en la lista solicitada
+— no lo generes igual. Sé concreto y usa la información real de la
+conversación; si algo no se mencionó, usa un texto breve indicando que
+falta esa información en vez de inventar datos.
+
+IDIOMA: Siempre en español.
+""".strip()
+
+
+def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dict[str, dict]:
+    """Genera los campos NARRATIVOS de varios documentos formales en UNA
+    sola llamada a Claude — no una llamada por tipo, para no gastar N
+    llamadas cuando se piden N documentos a la vez.
 
     Recibe el historial completo de mensajes_entrevista de la idea (misma
-    forma que generar_respuesta: [{"role": "usuario"|"asistente", "content": str}]).
-    Los campos ESTRUCTURALES (título, autor, fechas, quién aprobó) NO pasan
-    por aquí — se toman directo de la base de datos en
-    documentos/service.py:_contexto_estructural.
+    forma que generar_respuesta). Los campos ESTRUCTURALES (título, autor,
+    fechas, quién aprobó) NO pasan por aquí — se toman directo de la base
+    de datos en documentos/service.py:_contexto_estructural.
+
+    Devuelve {tipo: dict_de_campos} solo para los `tipos` pedidos.
     """
     if settings.claude_stub_mode:
-        return _contenido_documento_stub(historial, tipo_documento)
+        return {tipo: _contenido_documento_stub(historial, tipo) for tipo in tipos}
 
-    raise NotImplementedError(
-        "Integración real con Claude API pendiente de aprobación de presupuesto. "
-        "Set CLAUDE_STUB_MODE=true mientras tanto."
-    )
+    # Se empaqueta el historial completo como UN solo mensaje de usuario
+    # (no como turnos alternados usuario/asistente): messages.parse exige
+    # que la conversación termine en un mensaje "user" (no permite
+    # "prefill" del turno final, que es donde iría el output_format), y
+    # la entrevista real siempre termina con la respuesta del asistente.
+    if historial:
+        transcripcion = "\n\n".join(
+            f"{'Asistente' if m['role'] == 'asistente' else 'Usuario'}: {m['content']}"
+            for m in historial
+        )
+    else:
+        transcripcion = "(sin mensajes de entrevista registrados)"
+
+    mensajes_anthropic = [
+        {
+            "role": "user",
+            "content": f"Historial completo de la entrevista:\n\n{transcripcion}",
+        }
+    ]
+
+    try:
+        response = _client.messages.parse(
+            model=settings.claude_model,
+            max_tokens=4096,
+            system=(
+                f"Redacta el contenido para estos tipos de documento: {', '.join(tipos)}.\n\n"
+                f"{_CRITERIOS_DOCUMENTOS}"
+            ),
+            messages=mensajes_anthropic,
+            output_format=ContenidoDocumentosMultiple,
+        )
+    except anthropic.APIStatusError as exc:
+        # Fallo real de la API: documentos/generadores.py ya usa
+        # `.get(clave) or "Pendiente de definir"` en cada campo, así que un
+        # dict vacío por tipo es un fallback seguro — el .docx sale con
+        # los campos narrativos marcados como pendientes, no rompe nada.
+        print(f"[claude_client] generar_contenido_documentos: fallo de API: {exc}")
+        return {tipo: {} for tipo in tipos}
+
+    parsed = response.parsed_output
+    if parsed is None:
+        return {tipo: {} for tipo in tipos}
+
+    resultado: dict[str, dict] = {}
+    for tipo in tipos:
+        sub_modelo = getattr(parsed, tipo, None)
+        resultado[tipo] = sub_modelo.model_dump() if sub_modelo else {}
+    return resultado
 
 
 TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3

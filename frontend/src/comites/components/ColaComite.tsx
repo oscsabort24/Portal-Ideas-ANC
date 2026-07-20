@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { FiFileText } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
+import SelectorGenerarDocumentos from '../../documentos/components/SelectorGenerarDocumentos'
+import { obtenerPendientes } from '../../documentos/api'
+import type { TipoDocumento } from '../../documentos/types'
 import { listarUsuarios } from '../../usuarios/api'
 import { useEsMiembroCab } from '../../usuarios/hooks/useEsMiembroCab'
 import type { TipoCAB, Usuario } from '../../usuarios/types'
@@ -26,6 +29,7 @@ export default function ColaComite() {
   const [motivoAbiertoPara, setMotivoAbiertoPara] = useState<number | null>(null)
   const [motivo, setMotivo] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [pendientesPorIdea, setPendientesPorIdea] = useState<Record<number, TipoDocumento[]>>({})
 
   useEffect(() => {
     listarUsuarios()
@@ -68,10 +72,23 @@ export default function ColaComite() {
     setError(null)
     try {
       await aprobar(ideaId)
-      setCola((prev) => prev.filter((c) => c.idea_id !== ideaId))
+      // No se quita de la cola todavía — se muestra el selector de
+      // documentos inline; recién se quita al generar o al elegir
+      // "Más tarde" (ver finalizarAprobacion).
+      const info = await obtenerPendientes(ideaId)
+      setPendientesPorIdea((prev) => ({ ...prev, [ideaId]: info.pendientes }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo aprobar la idea')
     }
+  }
+
+  function finalizarAprobacion(ideaId: number) {
+    setCola((prev) => prev.filter((c) => c.idea_id !== ideaId))
+    setPendientesPorIdea((prev) => {
+      const siguiente = { ...prev }
+      delete siguiente[ideaId]
+      return siguiente
+    })
   }
 
   async function handleRechazar(ideaId: number) {
@@ -143,7 +160,15 @@ export default function ColaComite() {
                 </div>
               </div>
 
-              {motivoAbiertoPara === c.id ? (
+              {pendientesPorIdea[c.idea_id] ? (
+                <SelectorGenerarDocumentos
+                  ideaId={c.idea_id}
+                  tiposPendientes={pendientesPorIdea[c.idea_id]}
+                  mostrarOmitir
+                  onGenerado={() => finalizarAprobacion(c.idea_id)}
+                  onOmitir={() => finalizarAprobacion(c.idea_id)}
+                />
+              ) : motivoAbiertoPara === c.id ? (
                 <div className="form-field" style={{ marginTop: 12 }}>
                   <label className="form-label" htmlFor={`motivo-${c.id}`}>Motivo de rechazo</label>
                   <textarea

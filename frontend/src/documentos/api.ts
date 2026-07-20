@@ -1,11 +1,19 @@
-import { apiGet } from '../core/api'
+import { apiGet, apiPost } from '../core/api'
 import { USUARIO_ACTUAL } from '../core/UsuarioActualContext'
-import type { DocumentoGenerado, TipoDocumento } from './types'
+import type { DocumentoGenerado, PendientesDocumentos, TipoDocumento } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 export function listarDocumentos(ideaId: number): Promise<DocumentoGenerado[]> {
   return apiGet<DocumentoGenerado[]>(`/documentos/${ideaId}`)
+}
+
+export function obtenerPendientes(ideaId: number): Promise<PendientesDocumentos> {
+  return apiGet<PendientesDocumentos>(`/documentos/${ideaId}/pendientes`)
+}
+
+export function generarDocumentos(ideaId: number, tipos: TipoDocumento[]): Promise<DocumentoGenerado[]> {
+  return apiPost<DocumentoGenerado[]>(`/documentos/${ideaId}/generar`, { tipos })
 }
 
 async function extraerMensajeError(res: Response): Promise<string> {

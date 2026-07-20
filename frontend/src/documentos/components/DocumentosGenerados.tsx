@@ -1,36 +1,36 @@
 import { useEffect, useState } from 'react'
 import { FiDownload, FiFileText } from 'react-icons/fi'
-import { descargarDocumento, descargarZip, listarDocumentos } from '../api'
+import { descargarDocumento, descargarZip, listarDocumentos, obtenerPendientes } from '../api'
 import { ETIQUETA_TIPO_DOCUMENTO, ORDEN_TIPOS_DOCUMENTO, type DocumentoGenerado, type TipoDocumento } from '../types'
+import SelectorGenerarDocumentos from './SelectorGenerarDocumentos'
 
 export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
   const [documentos, setDocumentos] = useState<DocumentoGenerado[]>([])
+  const [pendientes, setPendientes] = useState<TipoDocumento[]>([])
   const [cargando, setCargando] = useState(true)
   const [seleccionados, setSeleccionados] = useState<Set<TipoDocumento>>(new Set())
   const [descargandoZip, setDescargandoZip] = useState(false)
   const [descargandoTipo, setDescargandoTipo] = useState<TipoDocumento | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  function cargar(marcarCargando: boolean) {
+    if (marcarCargando) setCargando(true)
+    return Promise.all([listarDocumentos(ideaId).catch(() => []), obtenerPendientes(ideaId).catch(() => null)])
+      .then(([docs, info]) => {
+        setDocumentos(docs)
+        setPendientes(info?.pendientes ?? [])
+      })
+      .finally(() => setCargando(false))
+  }
+
   useEffect(() => {
-    let cancelado = false
-    listarDocumentos(ideaId)
-      .then((docs) => {
-        if (!cancelado) setDocumentos(docs)
-      })
-      .catch(() => {
-        // 404 (todavía no hay documentos) u otro fallo al cargar: la sección
-        // simplemente no aparece — no es un error que el usuario deba ver.
-        if (!cancelado) setDocumentos([])
-      })
-      .finally(() => {
-        if (!cancelado) setCargando(false)
-      })
-    return () => {
-      cancelado = true
-    }
+    cargar(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ideaId])
 
-  if (cargando || documentos.length === 0) return null
+  // Nada que mostrar todavía: ni documentos generados ni pendientes por
+  // ofrecer (ej. la idea aún no fue aprobada por el CAB).
+  if (cargando || (documentos.length === 0 && pendientes.length === 0)) return null
 
   const documentosOrdenados = ORDEN_TIPOS_DOCUMENTO.map((tipo) => documentos.find((d) => d.tipo_documento === tipo)).filter(
     (d): d is DocumentoGenerado => d !== undefined,
@@ -78,47 +78,55 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
 
       {error && <p className="form-error">{error}</p>}
 
-      <div className="tabla-personas">
-        {documentosOrdenados.map((doc) => (
-          <div key={doc.id} className="idea-card idea-card-enviada">
-            <div className="idea-card-header">
-              <div className="idea-card-title-row">
-                <input
-                  type="checkbox"
-                  checked={seleccionados.has(doc.tipo_documento)}
-                  onChange={() => toggleSeleccionado(doc.tipo_documento)}
-                  aria-label={`Seleccionar ${ETIQUETA_TIPO_DOCUMENTO[doc.tipo_documento]}`}
-                />
-                <FiFileText className="idea-card-icon idea-card-icon-enviada" />
-                <div>
-                  <div className="idea-card-title">{ETIQUETA_TIPO_DOCUMENTO[doc.tipo_documento]}</div>
-                  <div className="idea-card-date">
-                    Generado el {new Date(doc.generado_en).toLocaleDateString('es-CR')}
+      {documentosOrdenados.length > 0 && (
+        <>
+          <div className="tabla-personas">
+            {documentosOrdenados.map((doc) => (
+              <div key={doc.id} className="idea-card idea-card-enviada">
+                <div className="idea-card-header">
+                  <div className="idea-card-title-row">
+                    <input
+                      type="checkbox"
+                      checked={seleccionados.has(doc.tipo_documento)}
+                      onChange={() => toggleSeleccionado(doc.tipo_documento)}
+                      aria-label={`Seleccionar ${ETIQUETA_TIPO_DOCUMENTO[doc.tipo_documento]}`}
+                    />
+                    <FiFileText className="idea-card-icon idea-card-icon-enviada" />
+                    <div>
+                      <div className="idea-card-title">{ETIQUETA_TIPO_DOCUMENTO[doc.tipo_documento]}</div>
+                      <div className="idea-card-date">
+                        Generado el {new Date(doc.generado_en).toLocaleDateString('es-CR')}
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                <div className="persona-card-actions" style={{ marginTop: 12 }}>
+                  <button
+                    className="btn-small"
+                    disabled={descargandoTipo === doc.tipo_documento}
+                    onClick={() => handleDescargarIndividual(doc.tipo_documento)}
+                  >
+                    <FiDownload style={{ marginRight: 4 }} />
+                    Descargar
+                  </button>
+                </div>
               </div>
-            </div>
-
-            <div className="persona-card-actions" style={{ marginTop: 12 }}>
-              <button
-                className="btn-small"
-                disabled={descargandoTipo === doc.tipo_documento}
-                onClick={() => handleDescargarIndividual(doc.tipo_documento)}
-              >
-                <FiDownload style={{ marginRight: 4 }} />
-                Descargar
-              </button>
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <div style={{ marginTop: 16 }}>
-        <button className="btn-small exito" disabled={seleccionados.size === 0 || descargandoZip} onClick={handleDescargarZip}>
-          <FiDownload style={{ marginRight: 4 }} />
-          Descargar seleccionados (ZIP)
-        </button>
-      </div>
+          <div style={{ marginTop: 16 }}>
+            <button className="btn-small exito" disabled={seleccionados.size === 0 || descargandoZip} onClick={handleDescargarZip}>
+              <FiDownload style={{ marginRight: 4 }} />
+              Descargar seleccionados (ZIP)
+            </button>
+          </div>
+        </>
+      )}
+
+      {pendientes.length > 0 && (
+        <SelectorGenerarDocumentos ideaId={ideaId} tiposPendientes={pendientes} onGenerado={() => cargar(false)} />
+      )}
     </div>
   )
 }
