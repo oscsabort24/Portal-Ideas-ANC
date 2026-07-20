@@ -85,6 +85,7 @@ export default function ChatEntrevista() {
   const entrevistaTerminada = idea.estado === 'enviada'
 
   return (
+    <>
     <div className="chat-shell">
       <div className="chat-titulo">{idea.titulo}</div>
 
@@ -122,9 +123,12 @@ export default function ChatEntrevista() {
           </button>
         </div>
       </div>
+    </div>
 
+    <div style={{ marginTop: 20, border: '1px solid var(--border-light)', borderRadius: 'var(--radius)', background: 'var(--surface)' }}>
       <LineaTiempo ideaId={ideaId} />
       <DocumentosGenerados ideaId={ideaId} />
     </div>
+    </>
   )
 }
