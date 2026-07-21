@@ -1,3 +1,6 @@
+import { InteractionRequiredAuthError } from '@azure/msal-browser'
+import { apiTokenRequest } from './authConfig'
+import { msalInstance } from './AuthProvider'
 import { USUARIO_ACTUAL } from './UsuarioActualContext'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
@@ -75,4 +78,41 @@ export async function apiDelete(path: string): Promise<void> {
   if (!res.ok) {
     throw new Error(await extraerMensajeError(res))
   }
+}
+
+/**
+ * PRUEBA AISLADA de la validación real de tokens Microsoft (core/auth.py) —
+ * llama únicamente a GET /usuarios/me-seguro con un access token real de MSAL
+ * (Authorization: Bearer), en vez de X-Usuario-Id. Ninguna otra función de
+ * este archivo usa esto todavía: el resto del sistema sigue con X-Usuario-Id
+ * sin cambios hasta que este camino se confirme funcionando end-to-end.
+ */
+export async function obtenerUsuarioActualSeguroDePrueba(): Promise<unknown> {
+  if (!msalInstance) {
+    throw new Error('MSAL no está configurado (azureAdConfigurado es false)')
+  }
+  const cuenta = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0]
+  if (!cuenta) {
+    throw new Error('No hay ninguna cuenta de Microsoft activa — inicia sesión primero')
+  }
+
+  let resultadoToken
+  try {
+    resultadoToken = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account: cuenta })
+  } catch (err) {
+    if (err instanceof InteractionRequiredAuthError) {
+      // El usuario no dio consentimiento todavía para el scope access_as_user
+      // (ej. sesión iniciada antes de este cambio) — se pide interactivamente.
+      // La página navega fuera durante el redirect, así que no hay nada más
+      // que devolver aquí.
+      await msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account: cuenta })
+      return undefined
+    }
+    throw err
+  }
+
+  const res = await fetch(`${API_URL}/usuarios/me-seguro`, {
+    headers: { Authorization: `Bearer ${resultadoToken.accessToken}` },
+  })
+  return manejarRespuesta<unknown>(res)
 }

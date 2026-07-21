@@ -1,10 +1,39 @@
+import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { FiBell, FiLock, FiLogOut } from 'react-icons/fi'
 import { useMsal } from '@azure/msal-react'
 import { azureAdConfigurado } from '../core/authConfig'
+import { obtenerUsuarioActualSeguroDePrueba } from '../core/api'
 import { useInactividad } from '../core/hooks/useInactividad'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import Sidebar from './Sidebar'
+
+// TEMPORAL: botón de prueba para validar core/auth.py (validación real de
+// tokens Microsoft) end-to-end desde el navegador. Solo llama a
+// GET /usuarios/me-seguro — quitar en cuanto se confirme el camino exitoso
+// y se decida cómo propagar Authorization: Bearer al resto del sistema.
+function PruebaTokenSeguro() {
+  const [resultado, setResultado] = useState<string | null>(null)
+
+  async function probar() {
+    setResultado('Probando...')
+    try {
+      const usuario = await obtenerUsuarioActualSeguroDePrueba()
+      setResultado(usuario === undefined ? 'Redirigiendo a consentimiento...' : JSON.stringify(usuario))
+    } catch (err) {
+      setResultado(`ERROR: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  return (
+    <div className="banner-inactividad" style={{ background: '#333' }}>
+      <button onClick={probar} style={{ marginRight: 8 }}>
+        Probar /usuarios/me-seguro (token real)
+      </button>
+      {resultado && <code>{resultado}</code>}
+    </div>
+  )
+}
 
 function AvisoInactividad() {
   // Solo tiene sentido con una sesión real de Microsoft — en modo simulado
@@ -62,6 +91,7 @@ export default function AppLayout() {
   return (
     <>
       {azureAdConfigurado && <AvisoInactividad />}
+      {azureAdConfigurado && <PruebaTokenSeguro />}
 
       <header className="app-header">
         <div className="brand-logomark">

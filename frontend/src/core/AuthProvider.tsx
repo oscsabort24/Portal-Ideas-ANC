@@ -8,7 +8,10 @@ import { azureAdConfigurado, msalConfig } from './authConfig'
 import LoginScreen from './LoginScreen'
 import { UsuarioActualContext, UsuarioActualProvider, USUARIO_ACTUAL, actualizarUsuarioActual } from './UsuarioActualContext'
 
-const msalInstance = azureAdConfigurado ? new PublicClientApplication(msalConfig) : null
+// Exportada para poder pedir tokens fuera de un componente React (ver
+// core/api.ts:obtenerUsuarioActualSeguroDePrueba, que usa acquireTokenSilent
+// directamente contra esta misma instancia).
+export const msalInstance = azureAdConfigurado ? new PublicClientApplication(msalConfig) : null
 
 function esNoEncontrado(err: unknown): boolean {
   return err instanceof Error && err.message.includes('No existe un usuario con ese correo')
