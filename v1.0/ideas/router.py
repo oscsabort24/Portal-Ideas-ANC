@@ -151,7 +151,14 @@ def _tiene_acceso_revision_o_comite(db: Session, idea: Idea, usuario: Usuario) -
     """Acceso al resumen/preguntas de una idea: admin, el revisor asignado
     (RevisionIdea.revisor_id), o un miembro del CAB del tipo correspondiente
     si la idea ya llegó a comité — mismo patrón que
-    documentos/router.py:_validar_acceso."""
+    documentos/router.py:_validar_acceso.
+
+    A diferencia de ese patrón, aquí el AUTOR de la idea no tiene acceso —
+    decisión intencional confirmada: el resumen/mini-chat es una herramienta
+    para que quien revisa o decide entienda mejor la idea antes de resolver,
+    no una vista del autor sobre su propia idea (que ya ve la entrevista
+    completa de todas formas). No es un descuido.
+    """
     if usuario.rol == RolUsuario.admin:
         return True
 

@@ -67,7 +67,30 @@ def _clasificar_con_ia(db: Session, idea: Idea) -> dict | None:
 
 
 def crear_clasificacion_para_idea(db: Session, idea: Idea) -> ClasificacionIdea:
+    # Normalmente esta función solo corre una vez por idea (revision/router.py:aprobar
+    # exige revision.estado==pendiente_revision, que deja de ser alcanzable en cuanto
+    # se aprueba una vez). Pero dos aprobaciones casi simultáneas de la misma revisión
+    # (doble-click, dos requests en carrera) pueden colar ambas el guard antes de que
+    # la primera haga commit — sin este chequeo, la segunda truena con IntegrityError
+    # (idea_id es unique). Reutilizar en vez de crear también deja el código correcto
+    # si en el futuro se agrega una forma de reabrir una revisión ya aprobada.
+    existente = db.query(ClasificacionIdea).filter_by(idea_id=idea.id).first()
     resultado_ia = _clasificar_con_ia(db, idea)
+
+    if existente is not None:
+        if resultado_ia is not None:
+            existente.estado = EstadoClasificacion.clasificada
+            existente.clasificacion = resultado_ia["clasificacion"]
+            existente.clasificado_por_id = None
+            existente.fecha_clasificacion = datetime.now(timezone.utc)
+            db.flush()
+            crear_comite_idea_para_idea(db, idea, resultado_ia["clasificacion"])
+        else:
+            existente.estado = EstadoClasificacion.pendiente_clasificacion
+            existente.clasificacion = None
+            existente.clasificado_por_id = None
+            existente.fecha_clasificacion = None
+        return existente
 
     if resultado_ia is not None:
         clasificacion = ClasificacionIdea(

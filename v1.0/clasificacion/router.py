@@ -13,6 +13,12 @@ from usuarios.dependencies import requerir_admin
 
 router = APIRouter(prefix="/clasificacion", tags=["clasificacion"])
 
+# Ambos endpoints usan requerir_admin (no un patrón de "admin + rol funcional
+# específico" como en comites/revision/ideas) — decisión intencional
+# confirmada: clasificar una idea (Innovación vs Transformación Digital) es
+# una corrección de negocio reservada a admin, no delegable a encargado_area
+# o gerente. No es una asimetría accidental respecto a los demás módulos.
+
 
 @router.get("/pendientes", response_model=list[schemas.ClasificacionDetalleOut])
 def listar_pendientes(
