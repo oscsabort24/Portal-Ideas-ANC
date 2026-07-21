@@ -15,7 +15,7 @@ import logging
 from typing import Literal
 
 import anthropic
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, Field, create_model
 
 from core.config import settings
 from usuarios.models import TipoCAB
@@ -258,7 +258,12 @@ def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dic
     try:
         response = _client.messages.parse(
             model=settings.claude_model,
-            max_tokens=4096,
+            # 8192 (no 1024/4096 como generar_respuesta): esta llamada puede
+            # generar el contenido narrativo completo de hasta 6 documentos
+            # a la vez, muy por encima de lo que necesita una respuesta de
+            # chat — con un límite más bajo la respuesta se corta a mitad
+            # de generarse y produce JSON inválido ("EOF while parsing").
+            max_tokens=8192,
             system=(
                 f"Redacta el contenido para estos tipos de documento: {', '.join(tipos)}.\n\n"
                 f"{_CRITERIOS_DOCUMENTOS}"
@@ -461,6 +466,126 @@ def asignar_revisor_ia(
         "justificacion": parsed.justificacion,
         "acepto_sugerencia_autor": parsed.acepto_sugerencia_autor,
     }
+
+
+class AnalisisRiesgoResultado(BaseModel):
+    probabilidad: int = Field(ge=1, le=5)
+    impacto: int = Field(ge=1, le=5)
+    justificacion: str
+
+
+_CRITERIOS_ANALISIS_RIESGO = """
+Analiza el riesgo de esta idea a partir del historial completo de su
+entrevista, según la política de gestión de riesgo de ANC:
+
+PROBABILIDAD (1-5): considera experiencia histórica con ideas similares,
+dependencia de terceros, complejidad técnica/operativa, disponibilidad
+del equipo necesario, madurez del proceso que se busca cambiar, y
+supuestos no validados en la propuesta. 1 = muy poco probable que algo
+salga mal, 5 = muy probable.
+
+IMPACTO (1-5): considera el tiempo que tomaría o afectaría, el costo
+involucrado, el alcance de lo que cambia, y qué tan crítica es el área
+funcional afectada. 1 = impacto mínimo si algo sale mal, 5 = impacto
+severo.
+
+Da una justificación breve y concreta de ambos valores, basada en el
+contenido real de la entrevista — no genérica.
+
+IDIOMA: Siempre en español.
+""".strip()
+
+
+def analizar_riesgo_idea(historial: list[dict]) -> dict | None:
+    """Calcula probabilidad e impacto (1-5 cada uno) para el análisis de
+    riesgo automático de una idea. Es INFORMATIVO, no bloqueante: devuelve
+    None ante cualquier fallo de la API o de parseo — el caller
+    (riesgo/service.py) debe simplemente omitir la creación del análisis,
+    nunca romper el flujo de creación de la revisión.
+
+    nivel_riesgo (probabilidad × impacto) y categoria NUNCA se calculan
+    acá — eso es responsabilidad del código en riesgo/service.py, no de
+    la IA.
+    """
+    if settings.claude_stub_mode:
+        return {"probabilidad": 3, "impacto": 3, "justificacion": "[STUB] análisis de riesgo simulado"}
+
+    transcripcion = "\n\n".join(
+        f"{'Asistente' if m['role'] == 'asistente' else 'Usuario'}: {m['content']}"
+        for m in historial
+    ) or "(sin mensajes de entrevista registrados)"
+
+    mensajes_anthropic = [
+        {"role": "user", "content": f"Historial completo de la entrevista:\n\n{transcripcion}"}
+    ]
+
+    try:
+        response = _client.messages.parse(
+            model=settings.claude_model,
+            max_tokens=1024,
+            system=_CRITERIOS_ANALISIS_RIESGO,
+            messages=mensajes_anthropic,
+            output_format=AnalisisRiesgoResultado,
+        )
+    except anthropic.APIStatusError as exc:
+        logger.error("analizar_riesgo_idea: fallo de API: %s", exc)
+        return None
+
+    parsed = response.parsed_output
+    if parsed is None:
+        logger.error("analizar_riesgo_idea: la respuesta no se pudo parsear contra el schema esperado")
+        return None
+
+    return {
+        "probabilidad": parsed.probabilidad,
+        "impacto": parsed.impacto,
+        "justificacion": parsed.justificacion,
+    }
+
+
+def responder_pregunta_idea(historial: list[dict], pregunta: str) -> str:
+    """Responde una pregunta puntual de quien revisa/aprueba una idea
+    (revisor de área o miembro del CAB), a partir del historial completo
+    de la entrevista. Es una consulta EFÍMERA — no se persiste en ningún
+    lado, ver ideas/router.py:preguntar.
+
+    Texto plano (no Structured Output): a diferencia de clasificar_idea o
+    asignar_revisor_ia, acá no hay ningún campo que el backend necesite
+    extraer o validar para actuar — la respuesta se muestra tal cual en
+    el mini-chat del frontend, así que forzar un schema no aporta nada.
+    """
+    if settings.claude_stub_mode:
+        return f"[STUB] Respuesta simulada a: {pregunta}"
+
+    transcripcion = "\n\n".join(
+        f"{'Asistente' if m['role'] == 'asistente' else 'Usuario'}: {m['content']}"
+        for m in historial
+    ) or "(sin mensajes de entrevista registrados)"
+
+    try:
+        response = _client.messages.create(
+            model=settings.claude_model,
+            max_tokens=1024,
+            system=(
+                "Eres un asistente que ayuda a quien revisa o aprueba una idea a "
+                "entenderla mejor, respondiendo preguntas puntuales sobre su contenido "
+                "a partir del historial completo de la entrevista. Responde de forma "
+                "breve y concreta, basándote únicamente en lo que dice la conversación "
+                "— si algo no se mencionó, dilo explícitamente en vez de inventar.\n\n"
+                "IDIOMA: Siempre en español."
+            ),
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Historial completo de la entrevista:\n\n{transcripcion}\n\nPregunta: {pregunta}",
+                }
+            ],
+        )
+    except anthropic.APIStatusError as exc:
+        logger.error("responder_pregunta_idea: fallo de API: %s", exc)
+        return "No se pudo procesar la pregunta en este momento. Intenta de nuevo."
+
+    return response.content[0].text
 
 
 TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3

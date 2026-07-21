@@ -19,6 +19,7 @@ from clasificacion import models as clasificacion_models  # noqa: E402,F401 — 
 from comites import models as comites_models  # noqa: E402,F401 — registra los modelos en Base.metadata
 from notificaciones import models as notificaciones_models  # noqa: E402,F401 — registra los modelos en Base.metadata
 from documentos import models as documentos_models  # noqa: E402,F401 — registra los modelos en Base.metadata
+from riesgo import models as riesgo_models  # noqa: E402,F401 — registra los modelos en Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

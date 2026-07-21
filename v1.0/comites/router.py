@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from comites import schemas
-from comites.models import ComiteIdea, EstadoComite
+from comites.models import ComiteIdea, EstadoComite, RiceEvaluacion
+from comites.rice import calcular_calificacion
 from core.database import get_db
 from usuarios import models as usuarios_models
 from usuarios.dependencies import obtener_usuario_actual
@@ -96,3 +97,62 @@ def rechazar(
     db.commit()
     db.refresh(comite)
     return comite
+
+
+@router.get("/{idea_id}/rice", response_model=schemas.RiceEvaluacionOut)
+def obtener_rice(
+    idea_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    comite = _obtener_comite(db, idea_id)
+    _validar_acceso_comite(db, usuario_actual, comite.tipo_cab)
+
+    rice = db.query(RiceEvaluacion).filter_by(comite_idea_id=comite.id).first()
+    if not rice:
+        raise HTTPException(status_code=404, detail="Esta idea todavía no tiene una evaluación RICE")
+    return rice
+
+
+@router.put("/{idea_id}/rice", response_model=schemas.RiceEvaluacionOut)
+def guardar_rice(
+    idea_id: int,
+    payload: schemas.RiceEvaluacionRequest,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    comite = _obtener_comite(db, idea_id)
+    _validar_acceso_comite(db, usuario_actual, comite.tipo_cab)
+
+    # calificacion/prioridad SIEMPRE se recalculan acá, nunca se acepta un
+    # valor del cliente para esos dos campos (ver comites/rice.py).
+    calificacion, prioridad = calcular_calificacion(
+        alcance_departamentos=payload.alcance_departamentos,
+        impacto=payload.impacto,
+        confianza=payload.confianza,
+        esfuerzo=payload.esfuerzo,
+        paises=payload.paises,
+        presupuesto_rango=payload.presupuesto_rango,
+    )
+
+    rice = db.query(RiceEvaluacion).filter_by(comite_idea_id=comite.id).first()
+    if not rice:
+        rice = RiceEvaluacion(comite_idea_id=comite.id)
+        db.add(rice)
+
+    rice.area = payload.area.strip()
+    rice.lider_funcional = payload.lider_funcional.strip()
+    rice.paises = payload.paises
+    rice.presupuesto_rango = payload.presupuesto_rango
+    rice.impacta_plan_estrategico = payload.impacta_plan_estrategico
+    rice.alcance_departamentos = payload.alcance_departamentos
+    rice.impacto = payload.impacto
+    rice.confianza = payload.confianza
+    rice.esfuerzo = payload.esfuerzo
+    rice.calificacion = calificacion
+    rice.prioridad = prioridad
+    rice.completado_por_id = usuario_actual.id
+
+    db.commit()
+    db.refresh(rice)
+    return rice

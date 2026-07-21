@@ -3,14 +3,17 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from core.claude_client import generar_respuesta
+from comites.models import ComiteIdea
+from core.claude_client import generar_respuesta, responder_pregunta_idea
 from core.database import get_db
 from ideas import schemas
 from ideas.models import EstadoIdea, Idea, MensajeEntrevista, RolMensaje
 from ideas.service import construir_linea_tiempo, siguiente_orden
 from revision.models import EstadoRevision, RevisionIdea
 from revision.service import crear_revision_para_idea
-from usuarios.models import RolUsuario, Usuario
+from riesgo.models import AnalisisRiesgoIdea
+from riesgo.service import crear_analisis_riesgo_para_idea
+from usuarios.models import MiembroCAB, RolUsuario, Usuario
 from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
@@ -124,6 +127,7 @@ def enviar_mensaje(
             idea.estado = EstadoIdea.enviada
             idea.fecha_envio = datetime.now(timezone.utc)
             crear_revision_para_idea(db, idea)
+            crear_analisis_riesgo_para_idea(db, idea, mensajes_para_ia)
         else:
             # idea.estado ya era "enviada": solo se llega aquí porque el guard de arriba
             # confirmó que existe una RevisionIdea en cambios_solicitados — es una
@@ -141,3 +145,83 @@ def enviar_mensaje(
     return schemas.RespuestaEntrevistaOut(
         idea=idea, mensaje_usuario=mensaje_usuario, mensaje_asistente=mensaje_asistente
     )
+
+
+def _tiene_acceso_revision_o_comite(db: Session, idea: Idea, usuario: Usuario) -> bool:
+    """Acceso al resumen/preguntas de una idea: admin, el revisor asignado
+    (RevisionIdea.revisor_id), o un miembro del CAB del tipo correspondiente
+    si la idea ya llegó a comité — mismo patrón que
+    documentos/router.py:_validar_acceso."""
+    if usuario.rol == RolUsuario.admin:
+        return True
+
+    revision = db.query(RevisionIdea).filter_by(idea_id=idea.id).first()
+    if revision and revision.revisor_id == usuario.id:
+        return True
+
+    comite = db.query(ComiteIdea).filter_by(idea_id=idea.id).first()
+    if comite:
+        es_miembro = (
+            db.query(MiembroCAB)
+            .filter(MiembroCAB.usuario_id == usuario.id, MiembroCAB.tipo_cab == comite.tipo_cab)
+            .first()
+            is not None
+        )
+        if es_miembro:
+            return True
+
+    return False
+
+
+@router.get("/{idea_id}/resumen", response_model=schemas.ResumenIdeaOut)
+def obtener_resumen(
+    idea_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+):
+    idea = db.get(Idea, idea_id)
+    if not idea:
+        raise HTTPException(status_code=404, detail="Idea no encontrada")
+    if not _tiene_acceso_revision_o_comite(db, idea, usuario_actual):
+        raise HTTPException(status_code=403, detail="No tienes acceso al resumen de esta idea")
+
+    ultimo_mensaje_asistente = (
+        db.query(MensajeEntrevista)
+        .filter(MensajeEntrevista.idea_id == idea_id, MensajeEntrevista.rol == RolMensaje.asistente)
+        .order_by(MensajeEntrevista.orden.desc())
+        .first()
+    )
+    if not ultimo_mensaje_asistente:
+        raise HTTPException(status_code=404, detail="Esta idea todavía no tiene un resumen disponible")
+
+    analisis_riesgo = db.query(AnalisisRiesgoIdea).filter_by(idea_id=idea_id).first()
+
+    return schemas.ResumenIdeaOut(
+        resumen=ultimo_mensaje_asistente.contenido,
+        categoria_riesgo=analisis_riesgo.categoria.value if analisis_riesgo else None,
+    )
+
+
+@router.post("/{idea_id}/preguntar", response_model=schemas.RespuestaPreguntaOut)
+def preguntar(
+    idea_id: int,
+    payload: schemas.PreguntarRequest,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+):
+    idea = db.get(Idea, idea_id)
+    if not idea:
+        raise HTTPException(status_code=404, detail="Idea no encontrada")
+    if not _tiene_acceso_revision_o_comite(db, idea, usuario_actual):
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta idea")
+
+    historial = (
+        db.query(MensajeEntrevista)
+        .filter(MensajeEntrevista.idea_id == idea_id)
+        .order_by(MensajeEntrevista.orden)
+        .all()
+    )
+    mensajes_para_ia = [{"role": m.rol.value, "content": m.contenido} for m in historial]
+
+    respuesta = responder_pregunta_idea(mensajes_para_ia, payload.pregunta)
+    return schemas.RespuestaPreguntaOut(respuesta=respuesta)

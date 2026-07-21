@@ -24,3 +24,11 @@ export function enviarMensaje(ideaId: number, contenido: string): Promise<Respue
 export function obtenerLineaTiempo(ideaId: number): Promise<EventoLineaTiempo[]> {
   return apiGet<EventoLineaTiempo[]>(`/ideas/${ideaId}/linea-tiempo`)
 }
+
+export function obtenerResumen(ideaId: number): Promise<{ resumen: string; categoria_riesgo: string | null }> {
+  return apiGet<{ resumen: string; categoria_riesgo: string | null }>(`/ideas/${ideaId}/resumen`)
+}
+
+export function preguntarSobreIdea(ideaId: number, pregunta: string): Promise<{ respuesta: string }> {
+  return apiPost<{ respuesta: string }>(`/ideas/${ideaId}/preguntar`, { pregunta })
+}

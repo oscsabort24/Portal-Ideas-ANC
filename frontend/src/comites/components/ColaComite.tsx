@@ -4,10 +4,12 @@ import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import SelectorGenerarDocumentos from '../../documentos/components/SelectorGenerarDocumentos'
 import { obtenerPendientes } from '../../documentos/api'
 import type { TipoDocumento } from '../../documentos/types'
+import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
 import { listarUsuarios } from '../../usuarios/api'
 import { useEsMiembroCab } from '../../usuarios/hooks/useEsMiembroCab'
 import type { TipoCAB, Usuario } from '../../usuarios/types'
 import { aprobar, colaComite, rechazar } from '../api'
+import FormularioRice from './FormularioRice'
 import type { ComiteIdeaDetalle } from '../types'
 
 const ETIQUETA_TIPO_CAB: Record<TipoCAB, string> = {
@@ -30,6 +32,7 @@ export default function ColaComite() {
   const [motivo, setMotivo] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [pendientesPorIdea, setPendientesPorIdea] = useState<Record<number, TipoDocumento[]>>({})
+  const [riceAbiertoPara, setRiceAbiertoPara] = useState<number | null>(null)
 
   useEffect(() => {
     listarUsuarios()
@@ -160,6 +163,8 @@ export default function ColaComite() {
                 </div>
               </div>
 
+              <ResumenYPreguntas ideaId={c.idea_id} />
+
               {pendientesPorIdea[c.idea_id] ? (
                 <SelectorGenerarDocumentos
                   ideaId={c.idea_id}
@@ -198,11 +203,18 @@ export default function ColaComite() {
                   <button className="btn-small peligro" onClick={() => setMotivoAbiertoPara(c.id)}>
                     Rechazar
                   </button>
+                  <button className="btn-small" onClick={() => setRiceAbiertoPara(c.idea_id)}>
+                    Llenar RICE
+                  </button>
                 </div>
               )}
             </div>
           ))}
         </div>
+      )}
+
+      {riceAbiertoPara !== null && (
+        <FormularioRice ideaId={riceAbiertoPara} onCerrar={() => setRiceAbiertoPara(null)} />
       )}
     </div>
   )

@@ -60,3 +60,16 @@ class EventoLineaTiempoOut(BaseModel):
     descripcion: str
     fecha: datetime
     color: Literal["exito", "advertencia", "peligro", "info"]
+
+
+class ResumenIdeaOut(BaseModel):
+    resumen: str
+    categoria_riesgo: str | None = None
+
+
+class PreguntarRequest(BaseModel):
+    pregunta: str
+
+
+class RespuestaPreguntaOut(BaseModel):
+    respuesta: str
