@@ -1,5 +1,4 @@
-import { apiGet, apiPost } from '../core/api'
-import { USUARIO_ACTUAL } from '../core/UsuarioActualContext'
+import { apiGet, apiPost, construirHeadersAuth } from '../core/api'
 import type { DocumentoGenerado, PendientesDocumentos, TipoDocumento } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
@@ -17,12 +16,12 @@ export function generarDocumentos(ideaId: number, tipos: TipoDocumento[]): Promi
 }
 
 // No se usa apiGet: la respuesta es HTML crudo (text/html), no JSON — y un
-// <iframe src="..."> no puede mandar el header X-Usuario-Id, por eso se trae
-// el HTML acá y se inyecta al iframe vía srcDoc (ver VistaPreviaDocumento.tsx).
+// <iframe src="..."> no puede mandar headers de autenticación directamente,
+// por eso se trae el HTML acá (con el mismo mecanismo de auth que el resto
+// del frontend) y se inyecta al iframe vía srcDoc (ver VistaPreviaDocumento.tsx).
 export async function obtenerPreviewHtml(ideaId: number, tipo: TipoDocumento): Promise<string> {
-  const res = await fetch(`${API_URL}/documentos/${ideaId}/${tipo}/preview`, {
-    headers: { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
-  })
+  const headers = await construirHeadersAuth()
+  const res = await fetch(`${API_URL}/documentos/${ideaId}/${tipo}/preview`, { headers })
   if (!res.ok) {
     throw new Error(await extraerMensajeError(res))
   }
@@ -59,9 +58,10 @@ function nombreArchivoDesdeHeader(res: Response, fallback: string): string {
 }
 
 async function descargarBlob(path: string, init: RequestInit, fallback: string): Promise<void> {
+  const headers = await construirHeadersAuth()
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { ...init.headers, 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    headers: { ...init.headers, ...headers },
   })
   if (!res.ok) {
     throw new Error(await extraerMensajeError(res))

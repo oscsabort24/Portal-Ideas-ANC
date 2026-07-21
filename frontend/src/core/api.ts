@@ -38,7 +38,7 @@ async function manejarRespuesta<T>(res: Response): Promise<T> {
  * revocado), se redirige a Microsoft para renovarlo en vez de dejar fallar
  * la llamada silenciosamente.
  */
-async function construirHeadersAuth(): Promise<Record<string, string>> {
+export async function construirHeadersAuth(): Promise<Record<string, string>> {
   if (azureAdConfigurado && msalInstance) {
     const cuenta = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0]
     if (cuenta) {
