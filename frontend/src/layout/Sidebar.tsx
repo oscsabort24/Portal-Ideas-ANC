@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { FiBell, FiCheckSquare, FiFileText, FiPlus, FiShield, FiTag, FiUsers } from 'react-icons/fi'
+import { FiBell, FiCheckSquare, FiClipboard, FiFileText, FiPlus, FiShield, FiTag, FiUsers } from 'react-icons/fi'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import { useEsMiembroCab } from '../usuarios/hooks/useEsMiembroCab'
 
@@ -46,6 +46,10 @@ export default function Sidebar() {
       {esAdmin && (
         <div className="sidebar-section">
           <div className="sidebar-section-title">Administración</div>
+          <NavLink to="/admin/ideas" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <FiClipboard className="sidebar-link-icon" />
+            Panel de administración
+          </NavLink>
           <NavLink to="/usuarios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <FiUsers className="sidebar-link-icon" />
             Usuarios

@@ -10,7 +10,8 @@ from ideas.models import EstadoIdea, Idea, MensajeEntrevista, RolMensaje
 from ideas.service import construir_linea_tiempo, siguiente_orden
 from revision.models import EstadoRevision, RevisionIdea
 from revision.service import crear_revision_para_idea
-from usuarios.models import Usuario
+from usuarios.models import RolUsuario, Usuario
+from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -39,7 +40,16 @@ def listar_ideas(
     autor_id: int | None = None,
     estado: EstadoIdea | None = None,
     db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
+    # Solo un admin puede ver ideas de otros usuarios (ej. Panel de
+    # administración, que no manda autor_id para traer todas). Cualquier
+    # no-admin queda forzado a su propio autor_id sin importar qué haya
+    # mandado — así nadie puede ver ideas ajenas ni llamando la API
+    # directamente sin pasar por el frontend.
+    if usuario_actual.rol != RolUsuario.admin:
+        autor_id = usuario_actual.id
+
     query = db.query(Idea)
     if autor_id is not None:
         query = query.filter(Idea.autor_id == autor_id)

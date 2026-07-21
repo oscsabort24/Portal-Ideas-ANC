@@ -3,6 +3,7 @@ import AppLayout from './layout/AppLayout'
 import FormularioNuevaIdea from './ideas/components/FormularioNuevaIdea'
 import ChatEntrevista from './ideas/components/ChatEntrevista'
 import MisIdeas from './ideas/components/MisIdeas'
+import PanelAdmin from './ideas/components/PanelAdmin'
 import UsuariosView from './usuarios/components/UsuariosView'
 import CriteriosView from './criterios/components/CriteriosView'
 import RevisionView from './revision/components/RevisionView'
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/ideas" element={<MisIdeas />} />
         <Route path="/ideas/nueva" element={<FormularioNuevaIdea />} />
         <Route path="/ideas/:id" element={<ChatEntrevista />} />
+        <Route path="/admin/ideas" element={<PanelAdmin />} />
         <Route path="/usuarios" element={<UsuariosView />} />
         <Route path="/criterios" element={<CriteriosView />} />
         <Route path="/revision" element={<RevisionView />} />
