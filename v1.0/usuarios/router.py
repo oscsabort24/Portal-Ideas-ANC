@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from usuarios import models, schemas
-from usuarios.dependencies import requerir_admin
+from usuarios.dependencies import obtener_usuario_actual_seguro, requerir_admin
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -58,6 +58,18 @@ def obtener_usuario_por_correo(correo: str, db: Session = Depends(get_db)):
     if not usuario:
         raise HTTPException(status_code=404, detail="No existe un usuario con ese correo")
     return usuario
+
+
+@router.get("/me-seguro", response_model=schemas.UsuarioOut)
+def usuario_actual_seguro(
+    usuario_actual: models.Usuario = Depends(obtener_usuario_actual_seguro),
+):
+    """Endpoint de prueba AISLADO para validar core/auth.py con un token real de
+    Microsoft antes de propagar Authorization: Bearer a todo el sistema (que
+    hoy usa X-Usuario-Id en todos los módulos). Declarado antes de /{usuario_id}
+    por el mismo motivo que /por-correo — ver docstring de arriba.
+    """
+    return usuario_actual
 
 
 @router.get("/{usuario_id}", response_model=schemas.UsuarioOut)

@@ -8,9 +8,14 @@ pydantic-settings==2.7.0
 python-dotenv==1.0.1
 email-validator==2.3.0
 
-# Validación de tokens de Microsoft Entra ID — agregado como andamiaje.
-# La implementación real (core/auth.py) está pendiente de credenciales de Azure AD.
+# Validación de tokens de Microsoft Entra ID (core/auth.py): decodifica y
+# verifica la firma del JWT contra las claves públicas JWKS del tenant.
 python-jose[cryptography]==3.3.0
+
+# httpx: usado por core/auth.py para descargar las claves públicas JWKS de
+# Microsoft. Ya venía como dependencia transitiva de anthropic, se declara
+# explícita para no depender de eso.
+httpx==0.28.1
 
 # Hashing del PIN personal de admin (criterios/seguridad.py)
 bcrypt==4.2.1
