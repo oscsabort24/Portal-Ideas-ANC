@@ -1,5 +1,5 @@
 import { InteractionRequiredAuthError } from '@azure/msal-browser'
-import { apiTokenRequest } from './authConfig'
+import { apiTokenRequest, azureAdConfigurado } from './authConfig'
 import { msalInstance } from './AuthProvider'
 import { USUARIO_ACTUAL } from './UsuarioActualContext'
 
@@ -27,92 +27,90 @@ async function manejarRespuesta<T>(res: Response): Promise<T> {
   return (cuerpo ? JSON.parse(cuerpo) : undefined) as T
 }
 
+/**
+ * Header de autenticación para cada request: token real de Microsoft si hay
+ * sesión MSAL activa (azureAdConfigurado), o X-Usuario-Id en modo simulado
+ * (desarrollo local sin Azure AD configurado) — ver
+ * usuarios/dependencies.py:obtener_usuario_actual en el backend, que acepta
+ * ambos con la misma prioridad.
+ *
+ * Si acquireTokenSilent requiere interacción (consentimiento vencido o
+ * revocado), se redirige a Microsoft para renovarlo en vez de dejar fallar
+ * la llamada silenciosamente.
+ */
+async function construirHeadersAuth(): Promise<Record<string, string>> {
+  if (azureAdConfigurado && msalInstance) {
+    const cuenta = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0]
+    if (cuenta) {
+      try {
+        const { accessToken } = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account: cuenta })
+        return { Authorization: `Bearer ${accessToken}` }
+      } catch (err) {
+        if (err instanceof InteractionRequiredAuthError) {
+          await msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account: cuenta })
+          // La página navega fuera durante el redirect — no hay token que devolver aquí.
+          return {}
+        }
+        throw err
+      }
+    }
+  }
+  return { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) }
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
-  })
+  const headers = await construirHeadersAuth()
+  const res = await fetch(`${API_URL}${path}`, { headers })
   return manejarRespuesta<T>(res)
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const headers = await construirHeadersAuth()
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
   return manejarRespuesta<T>(res)
 }
 
 export async function apiPostFormData<T>(path: string, formData: FormData): Promise<T> {
+  const headers = await construirHeadersAuth()
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
-    headers: { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    headers,
     body: formData,
   })
   return manejarRespuesta<T>(res)
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  const headers = await construirHeadersAuth()
   const res = await fetch(`${API_URL}${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
   return manejarRespuesta<T>(res)
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const headers = await construirHeadersAuth()
   const res = await fetch(`${API_URL}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
   return manejarRespuesta<T>(res)
 }
 
 export async function apiDelete(path: string): Promise<void> {
+  const headers = await construirHeadersAuth()
   const res = await fetch(`${API_URL}${path}`, {
     method: 'DELETE',
-    headers: { 'X-Usuario-Id': String(USUARIO_ACTUAL.id) },
+    headers,
   })
   if (!res.ok) {
     throw new Error(await extraerMensajeError(res))
   }
-}
-
-/**
- * PRUEBA AISLADA de la validación real de tokens Microsoft (core/auth.py) —
- * llama únicamente a GET /usuarios/me-seguro con un access token real de MSAL
- * (Authorization: Bearer), en vez de X-Usuario-Id. Ninguna otra función de
- * este archivo usa esto todavía: el resto del sistema sigue con X-Usuario-Id
- * sin cambios hasta que este camino se confirme funcionando end-to-end.
- */
-export async function obtenerUsuarioActualSeguroDePrueba(): Promise<unknown> {
-  if (!msalInstance) {
-    throw new Error('MSAL no está configurado (azureAdConfigurado es false)')
-  }
-  const cuenta = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0]
-  if (!cuenta) {
-    throw new Error('No hay ninguna cuenta de Microsoft activa — inicia sesión primero')
-  }
-
-  let resultadoToken
-  try {
-    resultadoToken = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account: cuenta })
-  } catch (err) {
-    if (err instanceof InteractionRequiredAuthError) {
-      // El usuario no dio consentimiento todavía para el scope access_as_user
-      // (ej. sesión iniciada antes de este cambio) — se pide interactivamente.
-      // La página navega fuera durante el redirect, así que no hay nada más
-      // que devolver aquí.
-      await msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account: cuenta })
-      return undefined
-    }
-    throw err
-  }
-
-  const res = await fetch(`${API_URL}/usuarios/me-seguro`, {
-    headers: { Authorization: `Bearer ${resultadoToken.accessToken}` },
-  })
-  return manejarRespuesta<unknown>(res)
 }
