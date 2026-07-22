@@ -20,17 +20,23 @@ function formatearFecha(iso: string): string {
 }
 
 export default function LineaTiempo({ ideaId }: { ideaId: number }) {
-  const [eventos, setEventos] = useState<EventoLineaTiempo[]>([])
+  const [eventos, setEventos] = useState<EventoLineaTiempo[] | null>(null)
   const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelado = false
+    setCargando(true)
+    setError(null)
     obtenerLineaTiempo(ideaId)
       .then((data) => {
         if (!cancelado) setEventos(data)
       })
-      .catch(() => {
-        if (!cancelado) setEventos([])
+      .catch((err) => {
+        // No se traga el error: se guarda aparte (y se loguea) para
+        // mostrarlo explícito en vez de dejar el componente en blanco.
+        console.error('No se pudo cargar la línea de tiempo:', err)
+        if (!cancelado) setError(err instanceof Error ? err.message : 'Error desconocido')
       })
       .finally(() => {
         if (!cancelado) setCargando(false)
@@ -40,11 +46,20 @@ export default function LineaTiempo({ ideaId }: { ideaId: number }) {
     }
   }, [ideaId])
 
-  if (cargando || eventos.length === 0) return null
+  // Única excepción a "siempre mostrar el encabezado": mientras carga la
+  // primera vez, solo el indicador de carga — evita un parpadeo de "Sin
+  // eventos todavía" un instante antes de que lleguen los datos reales.
+  if (cargando) {
+    return (
+      <div style={{ padding: '20px', borderTop: '1px solid var(--border-light)' }}>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13.5 }}>Cargando historial...</p>
+      </div>
+    )
+  }
 
   // El backend devuelve orden cronológico ascendente — se invierte para
   // mostrar el evento más reciente arriba.
-  const eventosOrdenados = [...eventos].reverse()
+  const eventosOrdenados = eventos ? [...eventos].reverse() : []
 
   return (
     <div style={{ padding: '20px', borderTop: '1px solid var(--border-light)' }}>
@@ -52,17 +67,25 @@ export default function LineaTiempo({ ideaId }: { ideaId: number }) {
         Historial de la idea
       </h2>
 
-      <div className="linea-tiempo">
-        {eventosOrdenados.map((evento, i) => (
-          <div key={i} className="linea-tiempo-item">
-            <span className="linea-tiempo-punto" style={{ background: COLOR_VAR[evento.color] }} />
-            <div className="linea-tiempo-contenido">
-              <div className="linea-tiempo-descripcion">{evento.descripcion}</div>
-              <div className="linea-tiempo-fecha">{formatearFecha(evento.fecha)}</div>
+      {error && <p style={{ color: 'var(--error)', fontSize: 13.5 }}>No se pudo cargar el historial de la idea</p>}
+
+      {!error && eventos && eventos.length === 0 && (
+        <p style={{ color: 'var(--text-muted)', fontSize: 13.5 }}>Sin eventos todavía.</p>
+      )}
+
+      {!error && eventos && eventos.length > 0 && (
+        <div className="linea-tiempo">
+          {eventosOrdenados.map((evento, i) => (
+            <div key={i} className="linea-tiempo-item">
+              <span className="linea-tiempo-punto" style={{ background: COLOR_VAR[evento.color] }} />
+              <div className="linea-tiempo-contenido">
+                <div className="linea-tiempo-descripcion">{evento.descripcion}</div>
+                <div className="linea-tiempo-fecha">{formatearFecha(evento.fecha)}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
