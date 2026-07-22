@@ -77,6 +77,71 @@ docker compose down -v       # detiene y borra también el volumen de datos
 
 ## Problemas conocidos
 
+### 🔴 CRÍTICO — ENCODING: todas las columnas de texto libre son varchar (CP1252), no nvarchar
+
+Cualquier carácter Unicode fuera de ese charset (flechas, emojis, comillas
+tipográficas, guiones largos, etc.) generado por la IA causa
+`UnicodeEncodeError` (crash) o corrupción silenciosa al guardar. Reproducido
+y confirmado el 2026-07-22, durante una prueba real de entrevista con IA
+(idea id=22): el texto generado por Claude contenía el carácter `→`
+(U+2192), y al guardar el mensaje en `mensajes_entrevista` se corrompió
+(se vio como `?` en el navegador).
+
+Reproducido por la **ruta real de la app** (vía SQLAlchemy ORM —
+`db.add(MensajeEntrevista(...))` + `db.flush()`, el mismo camino que usa
+`ideas/router.py:enviar_mensaje`), no solo con SQL directo — insertar un
+`"→"` real lanza:
+```
+UnicodeEncodeError: 'charmap' codec can't encode character '→' in position 12
+```
+
+Causa raíz: `core/database.py` configura `setdecoding(SQL_CHAR,
+encoding="cp1252")` (necesario para leer acentos correctamente desde
+varchar), pero **nunca configura `setencoding()`** — pyodbc está
+reutilizando esa misma codificación cp1252 también para la escritura de
+parámetros `SQL_CHAR` (cómo SQLAlchemy vincula columnas `Text`/`VARCHAR`),
+en vez de mandarlos como Unicode.
+
+**Requiere:**
+1. Migración de Alembic cambiando las columnas listadas abajo a
+   `NVARCHAR(MAX)` (o el largo correspondiente).
+2. Fix en `core/database.py` agregando `setencoding()` explícito
+   (UTF-16LE / `SQL_WCHAR`) además del `setdecoding()` que ya existe.
+
+**Columnas afectadas** (100% de las columnas de texto libre del esquema,
+confirmado vía `sys.columns`/`sys.types` contra la BD real):
+```
+alembic_version.version_num
+analisis_riesgo_ideas.categoria, justificacion
+clasificacion_ideas.clasificacion, estado
+comite_ideas.estado, motivo_rechazo, tipo_cab
+configuraciones_escalamiento.etapa
+departamentos.nombre
+documentos_criterio.nombre_archivo, ruta_archivo, tipo
+documentos_generados.contenido, ruta_archivo, tipo_documento
+historial_retroalimentacion.retroalimentacion
+ideas.descripcion, estado, motivo_sugerencia_revisor_autor,
+     sugerencia_revisor_autor, titulo
+mensajes_entrevista.contenido, rol
+miembros_cab.tipo_cab
+notificaciones_escalamiento.etapa
+pines_admin.pin_hash
+puestos.nombre
+revision_ideas.estado, justificacion_ia, retroalimentacion
+rice_evaluaciones.area, confianza, esfuerzo, impacto, lider_funcional,
+                  presupuesto_rango, prioridad
+usuarios.compania, correo, nombre, pais, rol
+```
+
+**NO IMPLEMENTAR APURADO** — diseñar con cuidado la migración antes de
+aplicarla, ya que toca múltiples tablas con datos reales. Entre otras
+cosas hay que decidir: si TODAS esas columnas necesitan nvarchar de
+verdad (algunas son enums/códigos cortos en ASCII puro, ej. `estado`,
+`tipo_cab`, `rol` — probablemente no lo necesiten, pero cambiarlas de
+todas formas simplificaría no tener que mantener dos categorías), y cómo
+migrar el contenido ya almacenado (que hoy está en bytes CP1252, algunos
+posiblemente ya corruptos) sin perder ni corromper más datos en el proceso.
+
 ### Puerto 8000 con reserva fantasma (Windows, este equipo)
 
 El puerto por defecto de desarrollo de este backend es **8010, no el
