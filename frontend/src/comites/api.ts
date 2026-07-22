@@ -1,9 +1,9 @@
 import { apiGet, apiPost, apiPut } from '../core/api'
 import type { TipoCAB } from '../usuarios/types'
-import type { ComiteIdea, ComiteIdeaDetalle, RiceEvaluacion, RiceEvaluacionRequest } from './types'
+import type { ComiteIdea, ComiteIdeaDetalle, EstadoComite, RiceEvaluacion, RiceEvaluacionRequest } from './types'
 
-export function colaComite(tipoCab: TipoCAB): Promise<ComiteIdeaDetalle[]> {
-  return apiGet<ComiteIdeaDetalle[]>(`/comites/${tipoCab}/cola`)
+export function colaComite(tipoCab: TipoCAB, estado: EstadoComite = 'pendiente'): Promise<ComiteIdeaDetalle[]> {
+  return apiGet<ComiteIdeaDetalle[]>(`/comites/${tipoCab}/cola?estado=${estado}`)
 }
 
 export function aprobar(ideaId: number): Promise<ComiteIdea> {

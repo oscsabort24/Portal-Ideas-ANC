@@ -34,13 +34,18 @@ def _validar_acceso_comite(
 @router.get("/{tipo_cab}/cola", response_model=list[schemas.ComiteIdeaDetalleOut])
 def cola_comite(
     tipo_cab: usuarios_models.TipoCAB,
+    estado: EstadoComite = EstadoComite.pendiente,
     db: Session = Depends(get_db),
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
+    # estado por defecto sigue siendo "pendiente" (comportamiento de siempre,
+    # la cola real de trabajo) — el parámetro se agregó para que
+    # PaginaInicio.tsx pueda pedir estado=aprobada y calcular el conteo de
+    # "Aprobadas" del dashboard sin necesitar un endpoint nuevo.
     _validar_acceso_comite(db, usuario_actual, tipo_cab)
     return (
         db.query(ComiteIdea)
-        .filter(ComiteIdea.tipo_cab == tipo_cab, ComiteIdea.estado == EstadoComite.pendiente)
+        .filter(ComiteIdea.tipo_cab == tipo_cab, ComiteIdea.estado == estado)
         .order_by(ComiteIdea.creado_en.asc(), ComiteIdea.id.asc())
         .all()
     )

@@ -1,5 +1,6 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import AppLayout from './layout/AppLayout'
+import PaginaInicio from './layout/PaginaInicio'
 import FormularioNuevaIdea from './ideas/components/FormularioNuevaIdea'
 import ChatEntrevista from './ideas/components/ChatEntrevista'
 import MisIdeas from './ideas/components/MisIdeas'
@@ -15,7 +16,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<Navigate to="/ideas" replace />} />
+        <Route index element={<PaginaInicio />} />
         <Route path="/ideas" element={<MisIdeas />} />
         <Route path="/ideas/nueva" element={<FormularioNuevaIdea />} />
         <Route path="/ideas/:id" element={<ChatEntrevista />} />
