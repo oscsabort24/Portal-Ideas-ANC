@@ -6,7 +6,8 @@ import { useEsMiembroCab } from '../usuarios/hooks/useEsMiembroCab'
 export default function Sidebar() {
   const usuarioActual = useUsuarioActual()
   const esAdmin = usuarioActual.rol === 'admin'
-  const puedeRevisar = esAdmin || usuarioActual.rol === 'encargado_area' || usuarioActual.rol === 'gerente'
+  const esGerente = usuarioActual.rol === 'gerente'
+  const puedeRevisar = esAdmin || usuarioActual.rol === 'encargado_area' || esGerente
   const { esMiembro: esMiembroCab } = useEsMiembroCab()
 
   return (
@@ -43,17 +44,19 @@ export default function Sidebar() {
         </div>
       )}
 
-      {esAdmin && (
+      {(esAdmin || esGerente) && (
         <div className="sidebar-section">
           <div className="sidebar-section-title">Administración</div>
           <NavLink to="/admin/ideas" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <FiClipboard className="sidebar-link-icon" />
             Panel de administración
           </NavLink>
-          <NavLink to="/usuarios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <FiUsers className="sidebar-link-icon" />
-            Usuarios
-          </NavLink>
+          {esAdmin && (
+            <NavLink to="/usuarios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <FiUsers className="sidebar-link-icon" />
+              Usuarios
+            </NavLink>
+          )}
         </div>
       )}
 

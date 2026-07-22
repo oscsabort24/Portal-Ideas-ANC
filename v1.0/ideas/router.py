@@ -38,6 +38,13 @@ def crear_idea(payload: schemas.IdeaCreate, db: Session = Depends(get_db)):
     return idea
 
 
+# admin y gerente ven el Panel de administración (todas las ideas del
+# sistema, de solo lectura) — el resto de pantallas admin-only (Usuarios,
+# Clasificación, Criterios IA, Notificaciones) siguen exclusivas de admin
+# vía requerir_admin en sus propios routers, sin relación con esto.
+ROLES_VEN_TODAS_LAS_IDEAS = (RolUsuario.admin, RolUsuario.gerente)
+
+
 @router.get("", response_model=list[schemas.IdeaOut])
 def listar_ideas(
     autor_id: int | None = None,
@@ -45,12 +52,12 @@ def listar_ideas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    # Solo un admin puede ver ideas de otros usuarios (ej. Panel de
+    # Solo admin/gerente pueden ver ideas de otros usuarios (ej. Panel de
     # administración, que no manda autor_id para traer todas). Cualquier
-    # no-admin queda forzado a su propio autor_id sin importar qué haya
+    # otro rol queda forzado a su propio autor_id sin importar qué haya
     # mandado — así nadie puede ver ideas ajenas ni llamando la API
     # directamente sin pasar por el frontend.
-    if usuario_actual.rol != RolUsuario.admin:
+    if usuario_actual.rol not in ROLES_VEN_TODAS_LAS_IDEAS:
         autor_id = usuario_actual.id
 
     query = db.query(Idea)
