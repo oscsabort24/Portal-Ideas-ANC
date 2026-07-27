@@ -44,6 +44,12 @@ export default function ChatEntrevista() {
   const finMensajesRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  // Clave de idempotencia del envío en curso. Se genera al primer intento y
+  // se CONSERVA mientras ese mensaje no se haya enviado con éxito, para que
+  // un reintento manual (típicamente tras el timeout de 40s) reuse el turno
+  // que quizá el servidor ya guardó en vez de duplicarlo. Se limpia recién
+  // al confirmarse el envío, así el siguiente mensaje estrena clave.
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   // Auto-guarda el texto no enviado — se restaura si la persona recarga la
   // página o vuelve más tarde sin haber presionado enviar.
@@ -82,6 +88,9 @@ export default function ChatEntrevista() {
   // respuesta que nunca va a aplicar a la idea actual.
   useEffect(() => {
     setEnviando(false)
+    // La clave de idempotencia es de un mensaje concreto de ESTA idea —
+    // arrastrarla a otra no tendría sentido (la unicidad es por idea_id).
+    idempotencyKeyRef.current = null
     return () => {
       abortControllerRef.current?.abort()
     }
@@ -116,10 +125,14 @@ export default function ChatEntrevista() {
     abortControllerRef.current = controller
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_ENVIO_MS)
 
+    if (idempotencyKeyRef.current === null) {
+      idempotencyKeyRef.current = crypto.randomUUID()
+    }
+
     setEnviando(true)
     setError(null)
     try {
-      const respuesta = await enviarMensaje(ideaId, texto, controller.signal)
+      const respuesta = await enviarMensaje(ideaId, texto, idempotencyKeyRef.current, controller.signal)
       setMensajes((prev) => [...prev, respuesta.mensaje_usuario, respuesta.mensaje_asistente])
       setIdea((prev) =>
         prev
@@ -133,6 +146,7 @@ export default function ChatEntrevista() {
       )
       setContenido('')
       localStorage.removeItem(claveBorrador(ideaId))
+      idempotencyKeyRef.current = null
     } catch (err) {
       if (esAbortError(err)) {
         setError('El envío tardó demasiado y se canceló. Por favor, intentá de nuevo.')

@@ -81,6 +81,19 @@ class MensajeEntrevista(Base):
     rol: Mapped[RolMensaje] = mapped_column(Enum(RolMensaje, name="rol_mensaje"), nullable=False)
     contenido: Mapped[str] = mapped_column(Unicode(), nullable=False)
     orden: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Clave de idempotencia del intento de envío que creó este mensaje (ver
+    # ideas/router.py:enviar_mensaje). Solo se llena en los mensajes de
+    # rol=usuario: el mensaje del asistente que le responde se localiza por
+    # orden+1, no necesita clave propia.
+    #
+    # La unicidad NO se declara acá como UniqueConstraint porque en SQL
+    # Server un UNIQUE trata todos los NULL como iguales y solo admitiría
+    # UNA fila sin clave — la inmensa mayoría de las filas (todo el
+    # historial previo y todos los mensajes del asistente) las tiene NULL.
+    # Se crea como índice único filtrado (WHERE idempotency_key IS NOT
+    # NULL) en la migración 7e2c4a91b3f0.
+    idempotency_key: Mapped[str | None] = mapped_column(Unicode(64), nullable=True)
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

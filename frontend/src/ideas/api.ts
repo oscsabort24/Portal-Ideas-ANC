@@ -17,8 +17,18 @@ export function listarIdeas(filtros: { autor_id?: number; estado?: EstadoIdea } 
   return apiGet<Idea[]>(`/ideas${query ? `?${query}` : ''}`)
 }
 
-export function enviarMensaje(ideaId: number, contenido: string, signal?: AbortSignal): Promise<RespuestaEntrevista> {
-  return apiPost<RespuestaEntrevista>(`/ideas/${ideaId}/mensajes`, { contenido }, signal)
+export function enviarMensaje(
+  ideaId: number,
+  contenido: string,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<RespuestaEntrevista> {
+  // La clave la conserva el llamador mientras el envío no tenga éxito, para
+  // que un reintento del mismo mensaje reuse el turno ya generado en el
+  // servidor en vez de duplicarlo (ver ideas/router.py:enviar_mensaje).
+  return apiPost<RespuestaEntrevista>(`/ideas/${ideaId}/mensajes`, { contenido }, signal, {
+    'Idempotency-Key': idempotencyKey,
+  })
 }
 
 export function enviarIdea(ideaId: number): Promise<Idea> {

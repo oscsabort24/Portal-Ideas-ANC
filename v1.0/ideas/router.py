@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from comites.models import ComiteIdea
@@ -109,10 +109,48 @@ def enviar_mensaje(
     payload: schemas.MensajeEntrevistaCreate,
     db: Session = Depends(get_db),
     _usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     idea = db.get(Idea, idea_id)
     if not idea:
         raise HTTPException(status_code=404, detail="Idea no encontrada")
+
+    # Reintento del MISMO intento de envío: el frontend conserva la clave
+    # mientras el envío no haya tenido éxito (ver ChatEntrevista.tsx), así
+    # que si el turno anterior sí se guardó pero el cliente no llegó a ver
+    # la respuesta (timeout de 40s, red caída), acá se devuelve el turno ya
+    # generado en vez de crear uno nuevo y volver a llamar a la IA.
+    if idempotency_key:
+        previo = (
+            db.query(MensajeEntrevista)
+            .filter(
+                MensajeEntrevista.idea_id == idea_id,
+                MensajeEntrevista.idempotency_key == idempotency_key,
+            )
+            .first()
+        )
+        if previo is not None:
+            respuesta_previa = (
+                db.query(MensajeEntrevista)
+                .filter(
+                    MensajeEntrevista.idea_id == idea_id,
+                    MensajeEntrevista.orden == previo.orden + 1,
+                )
+                .first()
+            )
+            if respuesta_previa is not None:
+                return schemas.RespuestaEntrevistaOut(
+                    idea=idea, mensaje_usuario=previo, mensaje_asistente=respuesta_previa
+                )
+            # Caso patológico: quedó el mensaje del usuario sin la respuesta
+            # del asistente (el proceso murió entre un add y el otro). No se
+            # puede devolver un turno completo ni reusar la clave sin violar
+            # el índice único, así que se pide reintentar con clave nueva.
+            raise HTTPException(
+                status_code=409,
+                detail="El envío anterior quedó incompleto. Volvé a intentarlo.",
+            )
+
     if idea.estado == EstadoIdea.enviada:
         revision = db.query(RevisionIdea).filter_by(idea_id=idea_id).first()
         if not revision or revision.estado != EstadoRevision.cambios_solicitados:
@@ -127,7 +165,11 @@ def enviar_mensaje(
 
     orden_usuario = siguiente_orden(db, idea_id)
     mensaje_usuario = MensajeEntrevista(
-        idea_id=idea_id, rol=RolMensaje.usuario, contenido=payload.contenido, orden=orden_usuario
+        idea_id=idea_id,
+        rol=RolMensaje.usuario,
+        contenido=payload.contenido,
+        orden=orden_usuario,
+        idempotency_key=idempotency_key,
     )
     db.add(mensaje_usuario)
     db.flush()
