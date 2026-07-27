@@ -246,5 +246,3 @@ def editar_documento(
     db.commit()
     db.refresh(documento)
     return documento
-
-    return nuevo
