@@ -1,0 +1,855 @@
+diff --git a/v1.0/ideas/models.py b/v1.0/ideas/models.py
+index 13157db..470917c 100644
+--- a/v1.0/ideas/models.py
++++ b/v1.0/ideas/models.py
+@@ -24,6 +24,27 @@ class OrigenPregunta(str, enum.Enum):
+     comite = "comite"
+ 
+ 
++class TipoEventoIdea(str, enum.Enum):
++    """Tipos de evento de HistorialIdea.
++
++    Arranca cubriendo solo el ciclo de reasignación con aceptación, que es
++    lo que no tiene registro hoy. El enum está pensado para crecer y
++    absorber después los eventos que GET /ideas/{id}/linea-tiempo deriva
++    hoy de varias tablas (aprobada, cambios_solicitados, clasificada,
++    resuelta_en_comite...), hasta que la línea de tiempo se lea de una sola
++    tabla en vez de reconstruirse con joins.
++
++    Agregar un valor nuevo requiere migración: en SQL Server sa.Enum se
++    materializa como VARCHAR + CHECK constraint, y el CHECK hay que
++    recrearlo.
++    """
++
++    reasignacion_solicitada = "reasignacion_solicitada"
++    reasignacion_aceptada = "reasignacion_aceptada"
++    reasignacion_rechazada = "reasignacion_rechazada"
++    reasignacion_expirada = "reasignacion_expirada"
++
++
+ class Idea(Base):
+     __tablename__ = "ideas"
+ 
+@@ -130,3 +151,49 @@ class PreguntaIdea(Base):
+ 
+     idea: Mapped["Idea"] = relationship()
+     preguntada_por: Mapped["Usuario"] = relationship()
++
++
++class HistorialIdea(Base):
++    """Bitácora append-only y tipada de eventos sobre una idea.
++
++    Pensada como la línea de tiempo unificada a futuro, no como una tabla
++    exclusiva de reasignaciones: por eso el FK es a `ideas.id` y no a
++    `revision_ideas.id`, y por eso el evento se describe con un enum
++    (`tipo_evento`) en vez de con columnas específicas de un caso.
++
++    Vive en ideas/ y no en revision/ justamente por eso — revision ya
++    importa de ideas, y ponerla al revés obligaría a que ideas importara de
++    revision para construir la línea de tiempo.
++
++    Reemplaza conceptualmente a revision.models:HistorialReasignacion, que
++    queda de solo lectura tras el backfill (ver migración c9f3e820d114) y no
++    debe recibir filas nuevas.
++
++    Distinción importante entre las dos personas del evento:
++      - `actor_id`  = quién EJECUTÓ la acción (quién reasignó, quién aceptó).
++      - `sujeto_id` = a quién AFECTA (el revisor propuesto).
++    HistorialReasignacion guardaba `revisor_anterior_id`, que no es lo mismo
++    que el actor: un admin puede reasignar una idea que no es suya
++    (revision/router.py:_validar_revisor_asignado lo permite), y en ese caso
++    el revisor anterior no fue quien ejecutó nada.
++    """
++
++    __tablename__ = "historial_idea"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id"), nullable=False, index=True)
++    tipo_evento: Mapped[TipoEventoIdea] = mapped_column(
++        Enum(TipoEventoIdea, name="tipo_evento_idea"), nullable=False
++    )
++    actor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
++    sujeto_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
++    # Texto libre del evento: motivo de rechazo, comentario de la
++    # reasignación. NULL cuando el evento no lleva explicación.
++    detalle: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
++    creado_en: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), server_default=func.now(), nullable=False
++    )
++
++    idea: Mapped["Idea"] = relationship()
++    actor: Mapped["Usuario"] = relationship(foreign_keys=[actor_id])
++    sujeto: Mapped["Usuario | None"] = relationship(foreign_keys=[sujeto_id])
+diff --git a/v1.0/revision/models.py b/v1.0/revision/models.py
+index c88ec0a..2fb716a 100644
+--- a/v1.0/revision/models.py
++++ b/v1.0/revision/models.py
+@@ -1,7 +1,7 @@
+ import enum
+ from datetime import datetime
+ 
+-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Text
++from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Unicode
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ from sqlalchemy.sql import func
+ 
+@@ -15,6 +15,32 @@ class EstadoRevision(str, enum.Enum):
+     pendiente_revision = "pendiente_revision"
+     aprobada = "aprobada"
+     cambios_solicitados = "cambios_solicitados"
++    # Se propuso pasarle la revisión a otra persona y esa persona todavía no
++    # respondió. OJO: en este estado `revisor_id` SIGUE siendo el revisor
++    # original — la titularidad no se transfiere hasta la aceptación (ver
++    # RevisionIdea.revisor_propuesto_id).
++    pendiente_aceptacion_reasignacion = "pendiente_aceptacion_reasignacion"
++
++
++class OrigenAsignacion(str, enum.Enum):
++    """De dónde salió el revisor actual de una revisión.
++
++    Hasta ahora esto se infería leyendo tres columnas nullables
++    (departamento_sugerido_ia_id, justificacion_ia, acepto_sugerencia_autor)
++    y sabiendo de memoria qué combinación significaba qué. Con la tabla de
++    mapeo determinístico (usuarios.models:ResponsableArea) hay más caminos
++    posibles, así que el origen se guarda explícito.
++    """
++
++    # La IA eligió el área y ResponsableArea resolvió la persona.
++    mapeo_area = "mapeo_area"
++    # No hubo área utilizable (la IA falló, o el área que sugirió no tiene
++    # responsable): se cayó al departamento del autor.
++    fallback_departamento_autor = "fallback_departamento_autor"
++    # Un admin la asignó o reasignó a mano.
++    manual = "manual"
++    # No se pudo resolver a nadie; espera asignación de un admin.
++    sin_asignar = "sin_asignar"
+ 
+ 
+ class RevisionIdea(Base):
+@@ -34,7 +60,7 @@ class RevisionIdea(Base):
+     estado: Mapped[EstadoRevision] = mapped_column(
+         Enum(EstadoRevision, name="estado_revision"), nullable=False
+     )
+-    retroalimentacion: Mapped[str | None] = mapped_column(Text, nullable=True)
++    retroalimentacion: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+     fecha_asignacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+     fecha_resolucion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+ 
+@@ -50,15 +76,64 @@ class RevisionIdea(Base):
+         ForeignKey("departamentos.id"), nullable=True
+     )
+     departamento_sugerido_ia: Mapped["Departamento | None"] = relationship()
+-    justificacion_ia: Mapped[str | None] = mapped_column(Text, nullable=True)
++    justificacion_ia: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+     acepto_sugerencia_autor: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+ 
++    # Cómo se llegó al revisor_id actual. Las filas anteriores a la
++    # migración quedan con el valor que mejor las describe según los datos
++    # que ya tenían (ver el backfill en la migración b4d17c9e5a20), no en
++    # NULL: la columna es NOT NULL para que a futuro nadie pueda crear una
++    # revisión sin declarar el origen.
++    origen_asignacion: Mapped[OrigenAsignacion] = mapped_column(
++        Enum(OrigenAsignacion, name="origen_asignacion"), nullable=False
++    )
++
++    # --- Reasignación con aceptación ---
++    #
++    # Mientras hay una propuesta en curso, revisor_id NO cambia: sigue
++    # respondiendo el revisor original. Transferir antes de la aceptación
++    # dejaría a la idea sin dueño real durante la espera (desaparece de "Mis
++    # revisiones" de uno y aparece en la de alguien que todavía no aceptó).
++    # revisor_propuesto_id se limpia al aceptar, rechazar o expirar.
++    revisor_propuesto_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
++    revisor_propuesto: Mapped["Usuario | None"] = relationship(foreign_keys=[revisor_propuesto_id])
++
++    # Quién pidió la reasignación. No es necesariamente el revisor actual:
++    # un admin puede reasignar una idea ajena. Es a quién vuelve la revisión
++    # si la persona propuesta rechaza.
++    reasignacion_solicitada_por_id: Mapped[int | None] = mapped_column(
++        ForeignKey("usuarios.id"), nullable=True
++    )
++    reasignacion_solicitada_por: Mapped["Usuario | None"] = relationship(
++        foreign_keys=[reasignacion_solicitada_por_id]
++    )
++    fecha_solicitud_reasignacion: Mapped[datetime | None] = mapped_column(
++        DateTime(timezone=True), nullable=True
++    )
++
++    # Rechazos CONSECUTIVOS de propuestas sobre esta revisión. Se guarda como
++    # columna en vez de derivarse de historial_idea porque derivarlo exige
++    # recorrer los eventos hacia atrás hasta encontrar el primer no-rechazo
++    # —y decidir si un evento de otro tipo corta la racha—, lógica que no
++    # aporta nada frente a un contador. Se incrementa en cada rechazo o
++    # expiración y se pone en 0 en cuanto una propuesta se acepta.
++    #
++    # Al llegar a 2 la revisión pasa a pendiente_asignacion (pool del admin)
++    # en vez de devolverse otra vez a quien reasignó, para que dos personas
++    # no puedan rebotarse la idea indefinidamente.
++    rechazos_reasignacion_consecutivos: Mapped[int] = mapped_column(
++        Integer, default=0, server_default="0", nullable=False
++    )
++
+     creado_en: Mapped[datetime] = mapped_column(
+         DateTime(timezone=True), server_default=func.now(), nullable=False
+     )
+ 
+     idea: Mapped["Idea"] = relationship()
+-    revisor: Mapped["Usuario | None"] = relationship()
++    # foreign_keys explícito: desde que existen revisor_propuesto_id y
++    # reasignacion_solicitada_por_id hay tres caminos de FK a `usuarios` y
++    # SQLAlchemy no puede elegir solo.
++    revisor: Mapped["Usuario | None"] = relationship(foreign_keys=[revisor_id])
+ 
+ 
+ class HistorialRetroalimentacion(Base):
+@@ -75,7 +150,7 @@ class HistorialRetroalimentacion(Base):
+ 
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+     revision_id: Mapped[int] = mapped_column(ForeignKey("revision_ideas.id"), nullable=False)
+-    retroalimentacion: Mapped[str] = mapped_column(Text, nullable=False)
++    retroalimentacion: Mapped[str] = mapped_column(Unicode(), nullable=False)
+     creada_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+     creada_en: Mapped[datetime] = mapped_column(
+         DateTime(timezone=True), server_default=func.now(), nullable=False
+@@ -86,7 +161,18 @@ class HistorialRetroalimentacion(Base):
+ 
+ 
+ class HistorialReasignacion(Base):
+-    """Bitácora append-only de cada reasignación de revisor.
++    """OBSOLETA — de solo lectura desde la migración c9f3e820d114.
++
++    Sus filas se copiaron a ideas.models:HistorialIdea como eventos
++    `reasignacion_aceptada` (bajo el modelo viejo la reasignación era
++    inmediata, así que toda reasignación registrada aquí fue, de hecho,
++    aceptada). La tabla se conserva un release como respaldo del backfill;
++    NO debe recibir filas nuevas — revision/router.py:reasignar ya escribe
++    solo en HistorialIdea.
++
++    ---- Documentación original ----
++
++    Bitácora append-only de cada reasignación de revisor.
+ 
+     Se crea una fila en cada POST /revision/{idea_id}/reasignar (ver
+     revision/router.py:reasignar). POST /revision/{idea_id}/asignar NO
+diff --git a/v1.0/revision/router.py b/v1.0/revision/router.py
+index 2287447..3f87725 100644
+--- a/v1.0/revision/router.py
++++ b/v1.0/revision/router.py
+@@ -1,14 +1,21 @@
+ from datetime import datetime, timezone
+ 
+ from fastapi import APIRouter, Depends, HTTPException
++from sqlalchemy import or_
+ from sqlalchemy.orm import Session
+ 
+ from clasificacion.service import crear_clasificacion_para_idea
+ from core.database import get_db
+-from ideas.models import MensajeEntrevista, RolMensaje
++from ideas.models import HistorialIdea, MensajeEntrevista, RolMensaje, TipoEventoIdea
+ from ideas.service import siguiente_orden
+ from revision import schemas
+-from revision.models import EstadoRevision, HistorialReasignacion, HistorialRetroalimentacion, RevisionIdea
++from revision.models import (
++    EstadoRevision,
++    HistorialRetroalimentacion,
++    OrigenAsignacion,
++    RevisionIdea,
++)
++from revision.service import aplicar_rechazo_reasignacion, expirar_reasignaciones_vencidas
+ from usuarios import models as usuarios_models
+ from usuarios.dependencies import obtener_usuario_actual, requerir_admin
+ 
+@@ -43,9 +50,30 @@ def mis_revisiones(
+     # Mismo patrón de "admin ve todo" que GET /ideas: un admin ve TODAS las
+     # revisiones pendientes (no solo las suyas), para poder actuar sobre
+     # cualquiera vía el atajo de admin en _validar_revisor_asignado.
+-    query = db.query(RevisionIdea).filter(RevisionIdea.estado == EstadoRevision.pendiente_revision)
++    #
++    # Se incluyen dos cosas distintas en la misma lista:
++    #   - lo que ya es tuyo (pendiente_revision, revisor_id = vos)
++    #   - lo que te PROPUSIERON (pendiente_aceptacion_reasignacion,
++    #     revisor_propuesto_id = vos), que requiere que aceptes o rechaces
++    #     antes de poder trabajarla.
++    # El frontend las distingue por `estado` y marca las segundas con el
++    # badge de "requiere tu respuesta" (no hay correo: notificaciones/ tiene
++    # el envío en stub, sin credenciales SMTP).
++    #
++    # Una revisión propuesta a otra persona sigue apareciéndole a su revisor
++    # actual, porque hasta la aceptación la responsabilidad no se movió.
++    estados_visibles = (
++        EstadoRevision.pendiente_revision,
++        EstadoRevision.pendiente_aceptacion_reasignacion,
++    )
++    query = db.query(RevisionIdea).filter(RevisionIdea.estado.in_(estados_visibles))
+     if usuario_actual.rol != usuarios_models.RolUsuario.admin:
+-        query = query.filter(RevisionIdea.revisor_id == usuario_actual.id)
++        query = query.filter(
++            or_(
++                RevisionIdea.revisor_id == usuario_actual.id,
++                RevisionIdea.revisor_propuesto_id == usuario_actual.id,
++            )
++        )
+     return query.all()
+ 
+ 
+@@ -83,6 +111,9 @@ def asignar(
+     revision.revisor_id = revisor.id
+     revision.estado = EstadoRevision.pendiente_revision
+     revision.fecha_asignacion = datetime.now(timezone.utc)
++    revision.origen_asignacion = OrigenAsignacion.manual
++    # Sale del pool tras el doble rechazo: la racha se corta acá.
++    revision.rechazos_reasignacion_consecutivos = 0
+     db.commit()
+     db.refresh(revision)
+     return revision
+@@ -169,28 +200,129 @@ def reasignar(
+     db: Session = Depends(get_db),
+     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+ ):
++    """PROPONE una reasignación; ya no la ejecuta.
++
++    Antes este endpoint movía revisor_id de inmediato y la persona destino se
++    enteraba al ver la idea aparecer en su lista. Ahora queda en
++    pendiente_aceptacion_reasignacion y el destino debe aceptar o rechazar.
++
++    revisor_id NO se toca acá: hasta la aceptación, la idea sigue siendo
++    responsabilidad de quien la tiene. Ver RevisionIdea.revisor_propuesto_id.
++    """
+     revision = _obtener_revision(db, idea_id)
+     _validar_revisor_asignado(revision, usuario_actual)
+     if revision.estado != EstadoRevision.pendiente_revision:
+         raise HTTPException(status_code=400, detail="Esta idea ya no está pendiente de revisión")
+ 
+     nuevo_revisor = _validar_revisor_destino(db, payload.nuevo_revisor_id)
++    if nuevo_revisor.id == revision.revisor_id:
++        raise HTTPException(status_code=400, detail="Esa persona ya es la revisora de esta idea")
+ 
+     db.add(
+-        HistorialReasignacion(
+-            revision_id=revision.id,
+-            revisor_anterior_id=revision.revisor_id,
+-            revisor_nuevo_id=nuevo_revisor.id,
++        HistorialIdea(
++            idea_id=idea_id,
++            tipo_evento=TipoEventoIdea.reasignacion_solicitada,
++            actor_id=usuario_actual.id,
++            sujeto_id=nuevo_revisor.id,
++            detalle=payload.motivo,
++        )
++    )
++
++    revision.revisor_propuesto_id = nuevo_revisor.id
++    revision.reasignacion_solicitada_por_id = usuario_actual.id
++    revision.fecha_solicitud_reasignacion = datetime.now(timezone.utc)
++    revision.estado = EstadoRevision.pendiente_aceptacion_reasignacion
++    db.commit()
++    db.refresh(revision)
++    return revision
++
++
++def _validar_revisor_propuesto(
++    revision: RevisionIdea, usuario_actual: usuarios_models.Usuario
++) -> None:
++    if revision.estado != EstadoRevision.pendiente_aceptacion_reasignacion:
++        raise HTTPException(
++            status_code=400, detail="Esta idea no tiene una reasignación pendiente de respuesta"
++        )
++    # A diferencia del resto de acciones, acá NO hay atajo de admin por
++    # defecto: aceptar en nombre de otro sería falsear el consentimiento que
++    # todo este flujo existe para registrar. Un admin que quiera forzar el
++    # cambio tiene POST /revision/{id}/asignar tras el rechazo.
++    if revision.revisor_propuesto_id != usuario_actual.id:
++        raise HTTPException(status_code=403, detail="No sos la persona propuesta para esta revisión")
++
++
++@router.post("/{idea_id}/aceptar-reasignacion", response_model=schemas.RevisionOut)
++def aceptar_reasignacion(
++    idea_id: int,
++    db: Session = Depends(get_db),
++    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
++):
++    revision = _obtener_revision(db, idea_id)
++    _validar_revisor_propuesto(revision, usuario_actual)
++
++    db.add(
++        HistorialIdea(
++            idea_id=idea_id,
++            tipo_evento=TipoEventoIdea.reasignacion_aceptada,
++            actor_id=usuario_actual.id,
++            sujeto_id=usuario_actual.id,
+         )
+     )
+ 
+-    revision.revisor_id = nuevo_revisor.id
++    # Recién acá se transfiere la titularidad.
++    revision.revisor_id = usuario_actual.id
++    revision.revisor_propuesto_id = None
++    revision.reasignacion_solicitada_por_id = None
++    revision.fecha_solicitud_reasignacion = None
++    revision.rechazos_reasignacion_consecutivos = 0
++    revision.estado = EstadoRevision.pendiente_revision
+     revision.fecha_asignacion = datetime.now(timezone.utc)
++    revision.origen_asignacion = OrigenAsignacion.manual
++    db.commit()
++    db.refresh(revision)
++    return revision
++
++
++@router.post("/{idea_id}/rechazar-reasignacion", response_model=schemas.RevisionOut)
++def rechazar_reasignacion(
++    idea_id: int,
++    payload: schemas.RechazarReasignacionRequest,
++    db: Session = Depends(get_db),
++    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
++):
++    revision = _obtener_revision(db, idea_id)
++    _validar_revisor_propuesto(revision, usuario_actual)
++
++    aplicar_rechazo_reasignacion(
++        db,
++        revision,
++        actor_id=usuario_actual.id,
++        tipo_evento=TipoEventoIdea.reasignacion_rechazada,
++        detalle=payload.motivo,
++    )
+     db.commit()
+     db.refresh(revision)
+     return revision
+ 
+ 
++@router.post("/expirar-reasignaciones", response_model=list[schemas.RevisionOut])
++def expirar_reasignaciones(
++    db: Session = Depends(get_db),
++    _admin: usuarios_models.Usuario = Depends(requerir_admin),
++):
++    """Aplica la política de rechazo a las propuestas que pasaron el plazo.
++
++    Mismo patrón manual que POST /notificaciones/revisar — no hay job
++    programado en el sistema todavía.
++    """
++    expiradas = expirar_reasignaciones_vencidas(db)
++    db.commit()
++    for revision in expiradas:
++        db.refresh(revision)
++    return expiradas
++
++
+ @router.get("/{idea_id}/historial", response_model=list[schemas.HistorialRetroalimentacionOut])
+ def historial_retroalimentacion(
+     idea_id: int,
+diff --git a/v1.0/revision/schemas.py b/v1.0/revision/schemas.py
+index 9f4d3bb..1ebac0d 100644
+--- a/v1.0/revision/schemas.py
++++ b/v1.0/revision/schemas.py
+@@ -2,8 +2,9 @@ from datetime import datetime
+ 
+ from pydantic import BaseModel, ConfigDict, Field
+ 
++from ideas.models import TipoEventoIdea
+ from ideas.schemas import IdeaOut
+-from revision.models import EstadoRevision
++from revision.models import EstadoRevision, OrigenAsignacion
+ 
+ 
+ class UsuarioResumenOut(BaseModel):
+@@ -25,11 +26,22 @@ class RevisionOut(BaseModel):
+     departamento_sugerido_ia_id: int | None
+     justificacion_ia: str | None
+     acepto_sugerencia_autor: bool | None
++    origen_asignacion: OrigenAsignacion
++
++    # Con revisor_propuesto_id != null y estado ==
++    # pendiente_aceptacion_reasignacion, el frontend sabe que esa fila
++    # requiere respuesta de quien la recibe (badge in-app en "Mis
++    # revisiones") y no una acción de revisión normal.
++    revisor_propuesto_id: int | None
++    reasignacion_solicitada_por_id: int | None
++    fecha_solicitud_reasignacion: datetime | None
+ 
+ 
+ class RevisionDetalleOut(RevisionOut):
+     idea: IdeaOut
+     revisor: UsuarioResumenOut | None
++    revisor_propuesto: UsuarioResumenOut | None
++    reasignacion_solicitada_por: UsuarioResumenOut | None
+ 
+ 
+ class AsignarRequest(BaseModel):
+@@ -38,6 +50,30 @@ class AsignarRequest(BaseModel):
+ 
+ class ReasignarRequest(BaseModel):
+     nuevo_revisor_id: int
++    # Opcional: contexto de por qué se pasa la idea. Se guarda en
++    # HistorialIdea.detalle del evento reasignacion_solicitada.
++    motivo: str | None = None
++
++
++class RechazarReasignacionRequest(BaseModel):
++    # Obligatorio, a diferencia del motivo de la solicitud: quien rechaza le
++    # está devolviendo trabajo a otra persona y esa persona necesita saber
++    # por qué.
++    motivo: str = Field(min_length=1)
++
++
++class HistorialIdeaOut(BaseModel):
++    model_config = ConfigDict(from_attributes=True)
++
++    id: int
++    idea_id: int
++    tipo_evento: TipoEventoIdea
++    actor_id: int
++    actor: UsuarioResumenOut
++    sujeto_id: int | None
++    sujeto: UsuarioResumenOut | None
++    detalle: str | None
++    creado_en: datetime
+ 
+ 
+ class PedirCambiosRequest(BaseModel):
+diff --git a/v1.0/revision/service.py b/v1.0/revision/service.py
+index b4fd7c6..100c157 100644
+--- a/v1.0/revision/service.py
++++ b/v1.0/revision/service.py
+@@ -14,14 +14,15 @@ asigne manualmente. Esto NUNCA debe romper el envío de la idea.
+ """
+ 
+ import logging
+-from datetime import datetime, timezone
++from datetime import datetime, timedelta, timezone
+ 
++from sqlalchemy import or_
+ from sqlalchemy.orm import Session
+ 
+ from core.claude_client import asignar_revisor_ia
+-from ideas.models import Idea, MensajeEntrevista
+-from revision.models import EstadoRevision, RevisionIdea
+-from usuarios.models import Departamento, RolUsuario, Usuario
++from ideas.models import HistorialIdea, Idea, MensajeEntrevista, TipoEventoIdea
++from revision.models import EstadoRevision, OrigenAsignacion, RevisionIdea
++from usuarios.models import Departamento, ResponsableArea, RolUsuario, Usuario
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -41,16 +42,40 @@ def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
+     return [{"role": m.rol.value, "content": m.contenido} for m in mensajes]
+ 
+ 
+-def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | None:
+-    return (
+-        db.query(Usuario)
++def _buscar_encargado_activo(db: Session, departamento_id: int, autor: Usuario) -> Usuario | None:
++    """Resuelve el responsable de un área contra ResponsableArea.
++
++    Determinístico: el orden es explícito (prioridad ascendente, con id como
++    desempate final para que dos filas mal configuradas con la misma
++    prioridad tampoco produzcan un resultado que cambie entre ejecuciones).
++    Antes esto era un `.first()` sin ORDER BY, que en SQL Server devuelve
++    una fila arbitraria.
++
++    Se consideran solo las filas activas, dentro de su ventana de vigencia,
++    cuyo usuario siga activo y con rol habilitado para revisar, y cuyo
++    pais/compania sea NULL (comodín) o coincida con los del AUTOR.
++    """
++    ahora = datetime.now(timezone.utc)
++
++    fila = (
++        db.query(ResponsableArea)
++        .join(Usuario, ResponsableArea.usuario_id == Usuario.id)
+         .filter(
+-            Usuario.departamento_id == departamento_id,
+-            Usuario.rol.in_(ROLES_HABILITADOS_REVISOR),
++            ResponsableArea.departamento_id == departamento_id,
++            ResponsableArea.activo == True,  # noqa: E712
++            or_(ResponsableArea.vigente_desde.is_(None), ResponsableArea.vigente_desde <= ahora),
++            or_(ResponsableArea.vigente_hasta.is_(None), ResponsableArea.vigente_hasta >= ahora),
++            or_(ResponsableArea.pais.is_(None), ResponsableArea.pais == autor.pais),
++            or_(ResponsableArea.compania.is_(None), ResponsableArea.compania == autor.compania),
++            # El mapeo no puede resucitar a alguien dado de baja ni a quien
++            # perdió el rol de revisor — se valida contra el usuario real.
+             Usuario.activo == True,  # noqa: E712
++            Usuario.rol.in_(ROLES_HABILITADOS_REVISOR),
+         )
++        .order_by(ResponsableArea.prioridad.asc(), ResponsableArea.id.asc())
+         .first()
+     )
++    return fila.usuario if fila is not None else None
+ 
+ 
+ def _asignar_por_ia(db: Session, idea: Idea, departamentos: list[Departamento]) -> dict | None:
+@@ -73,6 +98,122 @@ def _asignar_por_ia(db: Session, idea: Idea, departamentos: list[Departamento])
+         return None
+ 
+ 
++# Plazo para que la persona propuesta acepte o rechace. Al vencer se aplica
++# sola la política de rechazo (ver aplicar_rechazo_reasignacion). Son días
++# HÁBILES: 3 días corridos que caen jueves-domingo darían menos de un día
++# laboral real de margen.
++DIAS_HABILES_ACEPTACION_REASIGNACION = 3
++
++# Al segundo rechazo consecutivo la revisión deja de rebotar entre personas
++# y cae al pool del admin.
++MAX_RECHAZOS_CONSECUTIVOS = 2
++
++
++def sumar_dias_habiles(desde: datetime, dias: int) -> datetime:
++    """Suma días hábiles (lunes a viernes). No contempla feriados: no hay
++    calendario de feriados en el sistema todavía, y meterlo por este caso
++    sería inventar una fuente de verdad que después habría que mantener
++    para los 4 países. Si algún día existe, este es el único punto a tocar."""
++    resultado = desde
++    restantes = dias
++    while restantes > 0:
++        resultado += timedelta(days=1)
++        if resultado.weekday() < 5:
++            restantes -= 1
++    return resultado
++
++
++def aplicar_rechazo_reasignacion(
++    db: Session,
++    revision: RevisionIdea,
++    actor_id: int,
++    tipo_evento: TipoEventoIdea,
++    detalle: str | None = None,
++) -> RevisionIdea:
++    """Política única de rechazo, compartida por el rechazo explícito y por
++    la expiración del plazo — así ambos caminos no pueden divergir.
++
++    Primer rechazo: la revisión vuelve a quien la reasignó. En la práctica
++    "volver" es no hacer nada con revisor_id, que nunca se movió: solo se
++    limpia la propuesta y se regresa a pendiente_revision.
++
++    Segundo rechazo consecutivo: se suelta al pool (pendiente_asignacion,
++    revisor_id = NULL) para que un admin decida. Evita que dos personas se
++    devuelvan la misma idea sin fin.
++    """
++    db.add(
++        HistorialIdea(
++            idea_id=revision.idea_id,
++            tipo_evento=tipo_evento,
++            actor_id=actor_id,
++            sujeto_id=revision.revisor_propuesto_id,
++            detalle=detalle,
++        )
++    )
++
++    revision.rechazos_reasignacion_consecutivos += 1
++    revision.revisor_propuesto_id = None
++    revision.reasignacion_solicitada_por_id = None
++    revision.fecha_solicitud_reasignacion = None
++
++    if revision.rechazos_reasignacion_consecutivos >= MAX_RECHAZOS_CONSECUTIVOS:
++        revision.revisor_id = None
++        revision.estado = EstadoRevision.pendiente_asignacion
++        revision.origen_asignacion = OrigenAsignacion.sin_asignar
++    else:
++        revision.estado = EstadoRevision.pendiente_revision
++
++    return revision
++
++
++def expirar_reasignaciones_vencidas(db: Session) -> list[RevisionIdea]:
++    """Aplica la política de rechazo a toda propuesta que pasó el plazo.
++
++    Sin esto una propuesta que nadie responde congela la idea para siempre:
++    el revisor original ya no la ve como accionable y el propuesto nunca
++    contesta.
++
++    Se dispara desde POST /revision/expirar-reasignaciones, del mismo modo
++    que POST /notificaciones/revisar dispara el escalamiento por plazo. No
++    reutiliza ConfiguracionEscalamiento: esa tabla configura un plazo por
++    ETAPA del flujo (revision/clasificacion/comites) con un responsable a
++    quien avisar, que es otro concepto — acá el plazo es de una propuesta
++    concreta y al vencer no se avisa a nadie, se resuelve sola. Meterlo ahí
++    obligaría a que `etapa` dejara de ser único.
++
++    El actor del evento es quien pidió la reasignación: nadie "ejecutó" la
++    expiración, y atribuírsela a quien no respondió sugeriría un rechazo
++    explícito que no ocurrió.
++    """
++    ahora = datetime.now(timezone.utc)
++    pendientes = (
++        db.query(RevisionIdea)
++        .filter(
++            RevisionIdea.estado == EstadoRevision.pendiente_aceptacion_reasignacion,
++            RevisionIdea.fecha_solicitud_reasignacion.isnot(None),
++        )
++        .all()
++    )
++
++    expiradas = []
++    for revision in pendientes:
++        limite = sumar_dias_habiles(
++            revision.fecha_solicitud_reasignacion, DIAS_HABILES_ACEPTACION_REASIGNACION
++        )
++        if ahora < limite:
++            continue
++        aplicar_rechazo_reasignacion(
++            db,
++            revision,
++            actor_id=revision.reasignacion_solicitada_por_id or revision.revisor_id,
++            tipo_evento=TipoEventoIdea.reasignacion_expirada,
++            detalle=f"Sin respuesta en {DIAS_HABILES_ACEPTACION_REASIGNACION} días hábiles",
++        )
++        expiradas.append(revision)
++
++    return expiradas
++
++
+ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
+     departamentos = db.query(Departamento).all()
+     resultado_ia = _asignar_por_ia(db, idea, departamentos)
+@@ -81,6 +222,7 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
+     departamento_sugerido_id = None
+     justificacion_ia = None
+     acepto_sugerencia_autor = None
++    origen = OrigenAsignacion.sin_asignar
+ 
+     if resultado_ia is not None:
+         departamento_ia = next(
+@@ -93,13 +235,17 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
+             # una sugerencia real que evaluar — si no, queda None (no False).
+             if idea.sugerencia_revisor_autor is not None:
+                 acepto_sugerencia_autor = resultado_ia["acepto_sugerencia_autor"]
+-            revisor = _buscar_encargado_activo(db, departamento_ia.id)
++            revisor = _buscar_encargado_activo(db, departamento_ia.id, idea.autor)
++            if revisor is not None:
++                origen = OrigenAsignacion.mapeo_area
+ 
+     if revisor is None and idea.autor.departamento_id is not None:
+         # Fallback: mismo departamento del autor (comportamiento original),
+         # ya sea porque la IA falló o porque el departamento que sugirió no
+-        # tiene ningún usuario con rol habilitado para revisar activo todavía.
+-        revisor = _buscar_encargado_activo(db, idea.autor.departamento_id)
++        # tiene ningún responsable utilizable en ResponsableArea todavía.
++        revisor = _buscar_encargado_activo(db, idea.autor.departamento_id, idea.autor)
++        if revisor is not None:
++            origen = OrigenAsignacion.fallback_departamento_autor
+ 
+     ahora = datetime.now(timezone.utc)
+     revision = RevisionIdea(
+@@ -110,6 +256,7 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
+         departamento_sugerido_ia_id=departamento_sugerido_id,
+         justificacion_ia=justificacion_ia,
+         acepto_sugerencia_autor=acepto_sugerencia_autor,
++        origen_asignacion=origen,
+     )
+     db.add(revision)
+     return revision
+diff --git a/v1.0/usuarios/models.py b/v1.0/usuarios/models.py
+index 337c9ee..4e58bd2 100644
+--- a/v1.0/usuarios/models.py
++++ b/v1.0/usuarios/models.py
+@@ -1,6 +1,7 @@
+ import enum
++from datetime import datetime
+ 
+-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, UniqueConstraint
++from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Unicode, UniqueConstraint
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from core.database import Base
+@@ -35,7 +36,7 @@ class Departamento(Base):
+     __tablename__ = "departamentos"
+ 
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+-    nombre: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
++    nombre: Mapped[str] = mapped_column(Unicode(150), unique=True, nullable=False)
+ 
+     usuarios: Mapped[list["Usuario"]] = relationship(back_populates="departamento")
+     puestos: Mapped[list["Puesto"]] = relationship(back_populates="departamento")
+@@ -54,7 +55,7 @@ class Puesto(Base):
+     __table_args__ = (UniqueConstraint("nombre", "departamento_id", name="uq_puesto_nombre_departamento"),)
+ 
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+-    nombre: Mapped[str] = mapped_column(String(200), nullable=False)
++    nombre: Mapped[str] = mapped_column(Unicode(200), nullable=False)
+     departamento_id: Mapped[int] = mapped_column(ForeignKey("departamentos.id"), nullable=False)
+     es_unico_por_pais: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+ 
+@@ -66,8 +67,8 @@ class Usuario(Base):
+     __tablename__ = "usuarios"
+ 
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+-    nombre: Mapped[str] = mapped_column(String(200), nullable=False)
+-    correo: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
++    nombre: Mapped[str] = mapped_column(Unicode(200), nullable=False)
++    correo: Mapped[str] = mapped_column(Unicode(200), unique=True, nullable=False)
+     rol: Mapped[RolUsuario] = mapped_column(
+         Enum(RolUsuario, name="rol_usuario"), default=RolUsuario.colaborador, nullable=False
+     )
+@@ -104,3 +105,74 @@ class MiembroCAB(Base):
+     tipo_cab: Mapped[TipoCAB] = mapped_column(Enum(TipoCAB, name="tipo_cab"), nullable=False)
+ 
+     usuario: Mapped["Usuario"] = relationship(back_populates="membresias_cab")
++
++
++class ResponsableArea(Base):
++    """Mapeo determinístico área -> persona responsable de revisar.
++
++    Reemplaza la parte NO determinística de la asignación automática. La IA
++    sigue eligiendo el ÁREA (revision/service.py:_asignar_por_ia devuelve un
++    nombre de departamento, nunca una persona), pero hasta ahora la persona
++    salía de un `.first()` sin ORDER BY sobre todos los usuarios activos del
++    departamento con rol habilitado — en SQL Server, sin orden explícito, qué
++    fila sale es indeterminado y puede cambiar entre ejecuciones. Con esta
++    tabla la resolución es una consulta ordenada y auditable.
++
++    RESOLUCIÓN (ver revision/service.py:_buscar_encargado_activo):
++    se filtran las filas activas y vigentes del departamento, se descartan
++    las que declaran un `pais`/`compania` distinto al del AUTOR de la idea,
++    y de las que quedan se toma la de menor `prioridad`. Una fila con
++    pais=NULL y compania=NULL es el comodín "aplica a todos" y actúa como
++    respaldo natural de las específicas, porque las específicas se declaran
++    con prioridad más baja (1) que el comodín (ej. 10).
++
++    Ejemplo — Tecnología:
++        (Tecnología, Ana,  prioridad=1, pais=GT,   compania=NULL)
++        (Tecnología, Luis, prioridad=2, pais=GT,   compania=NULL)  suplente GT
++        (Tecnología, Beto, prioridad=10, pais=NULL, compania=NULL) comodín
++    Una idea de un autor de GT resuelve Ana; si Ana está inactiva o fuera de
++    vigencia, Luis; una idea de CR resuelve Beto.
++
++    NO reemplaza el fallback final de "mismo departamento del autor": si el
++    área que sugirió la IA no tiene ninguna fila utilizable, se sigue
++    intentando el departamento del autor, y si tampoco, la revisión nace en
++    pendiente_asignacion para que un admin la resuelva a mano.
++    """
++
++    __tablename__ = "responsables_area"
++    __table_args__ = (
++        UniqueConstraint(
++            "departamento_id",
++            "pais",
++            "compania",
++            "prioridad",
++            name="uq_responsable_area_depto_pais_compania_prioridad",
++        ),
++    )
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    departamento_id: Mapped[int] = mapped_column(ForeignKey("departamentos.id"), nullable=False)
++    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
++
++    # 1 = titular, 2 = suplente, y así. Es el criterio de desempate que
++    # elimina el .first() arbitrario: menor número gana.
++    prioridad: Mapped[int] = mapped_column(Integer, nullable=False)
++
++    # NULL = "aplica a cualquier país / cualquier compañía". Se comparan
++    # contra el país y la compañía del AUTOR de la idea, no del revisor.
++    pais: Mapped[PaisUsuario | None] = mapped_column(
++        Enum(PaisUsuario, name="pais_responsable_area"), nullable=True
++    )
++    compania: Mapped[CompaniaUsuario | None] = mapped_column(
++        Enum(CompaniaUsuario, name="compania_responsable_area"), nullable=True
++    )
++
++    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
++
++    # Ventana de vigencia opcional (vacaciones, interinatos, rotación).
++    # NULL en cualquiera de los dos extremos = sin límite por ese lado.
++    vigente_desde: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++    vigente_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++
++    departamento: Mapped["Departamento"] = relationship()
++    usuario: Mapped["Usuario"] = relationship()

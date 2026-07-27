@@ -1,0 +1,182 @@
+"""historial_idea + reasignación con aceptación
+
+Revision ID: c9f3e820d114
+Revises: b4d17c9e5a20
+Create Date: 2026-07-27
+
+*** DISEÑO — NO EJECUTADA TODAVÍA. Pendiente de aprobación (Fase 4). ***
+
+Cuatro cambios:
+
+1. Nuevo valor `pendiente_aceptacion_reasignacion` en el enum de estado de
+   revisión. En SQL Server sa.Enum se materializa como VARCHAR + CHECK
+   constraint, así que "agregar un valor" es en realidad recrear el CHECK.
+   El nombre de la constraint lo genera SQL Server (CK__revision___estad__XXX)
+   y varía por instalación, así que se resuelve por consulta al catálogo en
+   vez de hardcodearlo.
+
+2. Columnas de propuesta en `revision_ideas`: revisor_propuesto_id,
+   reasignacion_solicitada_por_id, fecha_solicitud_reasignacion y
+   rechazos_reasignacion_consecutivos. Las tres primeras nullables (solo
+   tienen valor mientras hay una propuesta en curso); el contador es NOT
+   NULL con server_default 0 para que las filas existentes queden en 0 sin
+   necesidad de un UPDATE aparte.
+
+3. Tabla `historial_idea`.
+
+4. Backfill de historial_idea desde historial_reasignacion, como eventos
+   `reasignacion_aceptada`: bajo el modelo viejo la reasignación se aplicaba
+   de inmediato, así que toda fila registrada ahí fue de hecho aceptada.
+
+   actor_id se llena con revisor_anterior_id, que es la mejor aproximación
+   disponible — pero NO es lo mismo: un admin podía reasignar una idea
+   ajena y en ese caso el actor real era el admin, no el revisor anterior.
+   Ese dato nunca se guardó y no se puede recuperar. De esta migración en
+   adelante el actor es exacto.
+
+   historial_reasignacion NO se borra: queda de solo lectura un release
+   como respaldo verificable del backfill. El código ya no le escribe
+   (revision/router.py:reasignar escribe en historial_idea).
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = "c9f3e820d114"
+down_revision = "b4d17c9e5a20"
+branch_labels = None
+depends_on = None
+
+TIPO_EVENTO_IDEA = sa.Enum(
+    "reasignacion_solicitada",
+    "reasignacion_aceptada",
+    "reasignacion_rechazada",
+    "reasignacion_expirada",
+    name="tipo_evento_idea",
+)
+
+ESTADOS_NUEVOS = (
+    "pendiente_asignacion",
+    "pendiente_revision",
+    "aprobada",
+    "cambios_solicitados",
+    "pendiente_aceptacion_reasignacion",
+)
+ESTADOS_VIEJOS = ESTADOS_NUEVOS[:-1]
+
+
+def _recrear_check_estado(estados: tuple[str, ...]) -> None:
+    """Recrea el CHECK del enum `estado` de revision_ideas.
+
+    El nombre lo autogeneró SQL Server al crear la tabla, así que se busca
+    en el catálogo en vez de asumirlo.
+    """
+    op.execute(
+        """
+        DECLARE @nombre sysname;
+        SELECT @nombre = cc.name
+          FROM sys.check_constraints cc
+          JOIN sys.columns c
+            ON c.object_id = cc.parent_object_id
+           AND c.column_id = cc.parent_column_id
+         WHERE cc.parent_object_id = OBJECT_ID('revision_ideas')
+           AND c.name = 'estado';
+        IF @nombre IS NOT NULL
+            EXEC('ALTER TABLE revision_ideas DROP CONSTRAINT [' + @nombre + ']');
+        """
+    )
+    valores = ", ".join(f"'{e}'" for e in estados)
+    op.execute(
+        f"ALTER TABLE revision_ideas ADD CONSTRAINT ck_revision_ideas_estado "
+        f"CHECK (estado IN ({valores}))"
+    )
+
+
+def upgrade() -> None:
+    _recrear_check_estado(ESTADOS_NUEVOS)
+
+    op.add_column("revision_ideas", sa.Column("revisor_propuesto_id", sa.Integer(), nullable=True))
+    op.add_column(
+        "revision_ideas", sa.Column("reasignacion_solicitada_por_id", sa.Integer(), nullable=True)
+    )
+    op.add_column(
+        "revision_ideas",
+        sa.Column("fecha_solicitud_reasignacion", sa.DateTime(timezone=True), nullable=True),
+    )
+    op.add_column(
+        "revision_ideas",
+        sa.Column(
+            "rechazos_reasignacion_consecutivos",
+            sa.Integer(),
+            nullable=False,
+            server_default="0",
+        ),
+    )
+    op.create_foreign_key(
+        "fk_revision_ideas_revisor_propuesto",
+        "revision_ideas",
+        "usuarios",
+        ["revisor_propuesto_id"],
+        ["id"],
+    )
+    op.create_foreign_key(
+        "fk_revision_ideas_reasignacion_solicitada_por",
+        "revision_ideas",
+        "usuarios",
+        ["reasignacion_solicitada_por_id"],
+        ["id"],
+    )
+
+    op.create_table(
+        "historial_idea",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("idea_id", sa.Integer(), nullable=False),
+        sa.Column("tipo_evento", TIPO_EVENTO_IDEA, nullable=False),
+        sa.Column("actor_id", sa.Integer(), nullable=False),
+        sa.Column("sujeto_id", sa.Integer(), nullable=True),
+        sa.Column("detalle", sa.Unicode(), nullable=True),
+        sa.Column("creado_en", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.ForeignKeyConstraint(["idea_id"], ["ideas.id"]),
+        sa.ForeignKeyConstraint(["actor_id"], ["usuarios.id"]),
+        sa.ForeignKeyConstraint(["sujeto_id"], ["usuarios.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index("ix_historial_idea_idea_id", "historial_idea", ["idea_id"])
+
+    # Backfill. El join con revision_ideas es necesario porque
+    # historial_reasignacion referencia revision_id y historial_idea usa
+    # idea_id (para que el historial sobreviva a etapas posteriores).
+    op.execute(
+        """
+        INSERT INTO historial_idea (idea_id, tipo_evento, actor_id, sujeto_id, detalle, creado_en)
+        SELECT r.idea_id,
+               'reasignacion_aceptada',
+               h.revisor_anterior_id,
+               h.revisor_nuevo_id,
+               N'Migrado de historial_reasignacion: bajo el modelo anterior la reasignacion se aplicaba sin aceptacion explicita',
+               h.creada_en
+          FROM historial_reasignacion h
+          JOIN revision_ideas r ON r.id = h.revision_id
+         ORDER BY h.creada_en
+        """
+    )
+
+
+def downgrade() -> None:
+    op.drop_index("ix_historial_idea_idea_id", table_name="historial_idea")
+    op.drop_table("historial_idea")
+    op.drop_constraint(
+        "fk_revision_ideas_reasignacion_solicitada_por", "revision_ideas", type_="foreignkey"
+    )
+    op.drop_constraint("fk_revision_ideas_revisor_propuesto", "revision_ideas", type_="foreignkey")
+    op.drop_column("revision_ideas", "rechazos_reasignacion_consecutivos")
+    op.drop_column("revision_ideas", "fecha_solicitud_reasignacion")
+    op.drop_column("revision_ideas", "reasignacion_solicitada_por_id")
+    op.drop_column("revision_ideas", "revisor_propuesto_id")
+
+    # Cualquier revisión que esté esperando aceptación debe volver a un
+    # estado que el CHECK viejo admita, antes de recrearlo.
+    op.execute(
+        "UPDATE revision_ideas SET estado = 'pendiente_revision' "
+        "WHERE estado = 'pendiente_aceptacion_reasignacion'"
+    )
+    _recrear_check_estado(ESTADOS_VIEJOS)

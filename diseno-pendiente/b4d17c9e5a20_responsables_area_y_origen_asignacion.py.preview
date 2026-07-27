@@ -1,0 +1,125 @@
+"""responsables_area + origen_asignacion — asignación determinística por área
+
+Revision ID: b4d17c9e5a20
+Revises: 7e2c4a91b3f0
+Create Date: 2026-07-27
+
+*** DISEÑO — NO EJECUTADA TODAVÍA. Pendiente de aprobación (Fase 3). ***
+
+Dos cambios:
+
+1. Tabla `responsables_area`: mapeo determinístico área -> persona. La IA
+   sigue eligiendo el ÁREA; la persona la resuelve esta tabla por prioridad,
+   con desempate por país/compañía del AUTOR de la idea. Reemplaza el
+   `.first()` sin ORDER BY de revision/service.py:_buscar_encargado_activo,
+   que en SQL Server devolvía una fila arbitraria.
+
+   Nace VACÍA a propósito: no se puede adivinar quién es el titular de cada
+   departamento. Mientras esté vacía, _buscar_encargado_activo no resuelve a
+   nadie y toda idea nueva cae en `pendiente_asignacion` para que un admin
+   la asigne a mano. Eso NO rompe nada (es el mismo camino que ya existe
+   cuando un área no tiene encargado), pero sí cambia el comportamiento
+   observable: hasta ahora la asignación automática acertaba "por
+   casualidad" cuando el departamento tenía un solo candidato.
+
+   >>> Por eso esta migración debe correrse junto con la carga inicial de
+   >>> responsables_area, no antes. Ver scripts/seed_responsables_area.py
+   >>> (pendiente de escribir con los datos reales que dé el negocio).
+
+2. Columna `origen_asignacion` en `revision_ideas`, NOT NULL.
+
+   Se agrega en tres pasos porque la tabla ya tiene filas y SQL Server
+   rechaza un ALTER ... ADD NOT NULL sin default sobre una tabla poblada:
+   se crea nullable, se backfillea, y recién entonces se pasa a NOT NULL.
+
+   Criterio del backfill, con los datos que ya existen:
+     - revisor_id IS NULL                      -> sin_asignar
+     - departamento_sugerido_ia_id IS NOT NULL -> mapeo_area
+     - resto (tiene revisor pero no hubo IA)   -> fallback_departamento_autor
+
+   El backfill es aproximado y no puede no serlo: las reasignaciones
+   manuales anteriores sobrescribieron revisor_id sin dejar rastro del
+   origen, así que una revisión reasignada a mano sobre una asignación por
+   IA se etiqueta como mapeo_area. A partir de esta migración el dato es
+   exacto porque se escribe en el momento.
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = "b4d17c9e5a20"
+down_revision = "7e2c4a91b3f0"
+branch_labels = None
+depends_on = None
+
+ORIGEN_ASIGNACION = sa.Enum(
+    "mapeo_area",
+    "fallback_departamento_autor",
+    "manual",
+    "sin_asignar",
+    name="origen_asignacion",
+)
+
+PAIS_RESPONSABLE = sa.Enum("CR", "GT", "NI", "PE", name="pais_responsable_area")
+COMPANIA_RESPONSABLE = sa.Enum(
+    "ANC_CAR", "RENTING", "RENTAS_INT", name="compania_responsable_area"
+)
+
+
+def upgrade() -> None:
+    op.create_table(
+        "responsables_area",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("departamento_id", sa.Integer(), nullable=False),
+        sa.Column("usuario_id", sa.Integer(), nullable=False),
+        sa.Column("prioridad", sa.Integer(), nullable=False),
+        sa.Column("pais", PAIS_RESPONSABLE, nullable=True),
+        sa.Column("compania", COMPANIA_RESPONSABLE, nullable=True),
+        sa.Column("activo", sa.Boolean(), nullable=False),
+        sa.Column("vigente_desde", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("vigente_hasta", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(["departamento_id"], ["departamentos.id"]),
+        sa.ForeignKeyConstraint(["usuario_id"], ["usuarios.id"]),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "departamento_id",
+            "pais",
+            "compania",
+            "prioridad",
+            name="uq_responsable_area_depto_pais_compania_prioridad",
+        ),
+    )
+    # Índice de la consulta de resolución (filtra por departamento y ordena
+    # por prioridad) — ver revision/service.py:_buscar_encargado_activo.
+    op.create_index(
+        "ix_responsable_area_depto_prioridad",
+        "responsables_area",
+        ["departamento_id", "prioridad"],
+    )
+
+    # --- origen_asignacion, en tres pasos sobre una tabla ya poblada ---
+    op.add_column("revision_ideas", sa.Column("origen_asignacion", ORIGEN_ASIGNACION, nullable=True))
+
+    op.execute(
+        """
+        UPDATE revision_ideas
+           SET origen_asignacion =
+                CASE
+                    WHEN revisor_id IS NULL THEN 'sin_asignar'
+                    WHEN departamento_sugerido_ia_id IS NOT NULL THEN 'mapeo_area'
+                    ELSE 'fallback_departamento_autor'
+                END
+        """
+    )
+
+    op.alter_column(
+        "revision_ideas",
+        "origen_asignacion",
+        existing_type=ORIGEN_ASIGNACION,
+        nullable=False,
+    )
+
+
+def downgrade() -> None:
+    op.drop_column("revision_ideas", "origen_asignacion")
+    op.drop_index("ix_responsable_area_depto_prioridad", table_name="responsables_area")
+    op.drop_table("responsables_area")
