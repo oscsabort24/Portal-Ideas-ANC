@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from ideas.models import EstadoIdea, RolMensaje
+from core.claude_client import EstadoBloque
+from ideas.models import EstadoIdea, OrigenPregunta, RolMensaje
 
 
 class IdeaCreate(BaseModel):
@@ -30,6 +31,14 @@ class MensajeEntrevistaOut(BaseModel):
     creado_en: datetime
 
 
+class ProgresoBloquesOut(BaseModel):
+    problema_alcance: EstadoBloque
+    objetivo_medible: EstadoBloque
+    beneficios: EstadoBloque
+    entregables: EstadoBloque
+    riesgos: EstadoBloque
+
+
 class IdeaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,6 +52,7 @@ class IdeaOut(BaseModel):
     fecha_creacion: datetime
     fecha_actualizacion: datetime
     fecha_envio: datetime | None
+    progreso_bloques: ProgresoBloquesOut | None
 
 
 class IdeaDetalleOut(IdeaOut):
@@ -69,6 +79,7 @@ class ResumenIdeaOut(BaseModel):
 
 class PreguntarRequest(BaseModel):
     pregunta: str
+    origen: OrigenPregunta
 
 
 class RespuestaPreguntaOut(BaseModel):
