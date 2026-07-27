@@ -30,7 +30,7 @@ export default function FormularioNuevaIdea() {
     setEnviando(true)
     setError(null)
     try {
-      const idea = await crearIdea({ titulo: titulo.trim(), autor_id: usuario.id })
+      const idea = await crearIdea({ titulo: titulo.trim() })
       navigate(`/ideas/${idea.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo crear la idea')

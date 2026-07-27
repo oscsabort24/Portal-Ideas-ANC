@@ -29,20 +29,21 @@ SYSTEM_PROMPT_ENTREVISTA = (
 def crear_idea(
     payload: schemas.IdeaCreate,
     db: Session = Depends(get_db),
-    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    # Cualquier usuario registrado puede crear una idea — es la acción
-    # principal de un colaborador, no requiere rol especial.
-    #
-    # PENDIENTE (no es parte de este commit de auth): autor_id se sigue
-    # tomando del payload, así que un usuario autenticado puede crear una
-    # idea a nombre de otro. Cerrarlo implica derivar autor_id de
-    # _usuario_actual, que es un cambio de lógica de negocio.
-    autor = db.get(Usuario, payload.autor_id)
-    if not autor:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    """Cualquier usuario registrado puede crear una idea — es la acción
+    principal de un colaborador, no requiere rol especial.
 
-    idea = Idea(titulo=payload.titulo, autor_id=payload.autor_id, estado=EstadoIdea.borrador)
+    El autor SIEMPRE es quien hace la request. `autor_id` ya no se acepta
+    del payload: mientras se aceptaba, cualquier usuario autenticado podía
+    crear una idea a nombre de otra persona con solo cambiar un número, y
+    esa idea después arrastraba al autor falso por todo el flujo (la
+    revisión se asigna según el departamento del autor, los documentos se
+    generan a su nombre). No existe ningún caso legítimo de crear una idea
+    para un tercero — el único llamador es FormularioNuevaIdea.tsx, que ya
+    mandaba el id del usuario en sesión.
+    """
+    idea = Idea(titulo=payload.titulo, autor_id=usuario_actual.id, estado=EstadoIdea.borrador)
     db.add(idea)
     db.commit()
     db.refresh(idea)
@@ -79,27 +80,60 @@ def listar_ideas(
     return query.order_by(Idea.fecha_creacion.desc()).all()
 
 
+def _puede_ver_idea(db: Session, idea: Idea, usuario: Usuario) -> bool:
+    """Quién puede leer una idea concreta y su línea de tiempo.
+
+    Estar autenticado no alcanza: sin esto, cualquier colaborador podía leer
+    la entrevista completa de la idea de cualquier otro con solo cambiar el
+    id en la URL. GET /ideas (el listado) ya filtraba por autor desde antes
+    — esto cierra la lectura individual, que era la vía de escape.
+
+    Se permite a:
+      - admin y gerente, que ya ven TODAS las ideas en el listado y navegan
+        al detalle desde el Panel de administración (PanelAdmin.tsx). Excluir
+        a gerente rompería ese panel, así que se reutiliza el mismo criterio
+        que GET /ideas en vez de inventar uno distinto.
+      - el AUTOR de la idea.
+      - el revisor asignado y los miembros del CAB del tipo correspondiente,
+        vía _tiene_acceso_revision_o_comite (definida más abajo), que ya
+        implementa esa parte para el resumen y el mini-chat.
+
+    OJO con la diferencia: _tiene_acceso_revision_o_comite excluye al autor
+    a propósito (ver su docstring — el resumen es una herramienta de quien
+    revisa, no del autor). Acá el autor SÍ entra: es su propia idea.
+    """
+    if usuario.rol in ROLES_VEN_TODAS_LAS_IDEAS:
+        return True
+    if idea.autor_id == usuario.id:
+        return True
+    return _tiene_acceso_revision_o_comite(db, idea, usuario)
+
+
+def _obtener_idea_visible(db: Session, idea_id: int, usuario: Usuario) -> Idea:
+    idea = db.get(Idea, idea_id)
+    if not idea:
+        raise HTTPException(status_code=404, detail="Idea no encontrada")
+    if not _puede_ver_idea(db, idea, usuario):
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta idea")
+    return idea
+
+
 @router.get("/{idea_id}", response_model=schemas.IdeaDetalleOut)
 def obtener_idea(
     idea_id: int,
     db: Session = Depends(get_db),
-    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    idea = db.get(Idea, idea_id)
-    if not idea:
-        raise HTTPException(status_code=404, detail="Idea no encontrada")
-    return idea
+    return _obtener_idea_visible(db, idea_id, usuario_actual)
 
 
 @router.get("/{idea_id}/linea-tiempo", response_model=list[schemas.EventoLineaTiempoOut])
 def linea_tiempo(
     idea_id: int,
     db: Session = Depends(get_db),
-    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    idea = db.get(Idea, idea_id)
-    if not idea:
-        raise HTTPException(status_code=404, detail="Idea no encontrada")
+    idea = _obtener_idea_visible(db, idea_id, usuario_actual)
     return construir_linea_tiempo(db, idea)
 
 

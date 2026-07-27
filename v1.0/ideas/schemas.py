@@ -8,8 +8,9 @@ from ideas.models import EstadoIdea, OrigenPregunta, RolMensaje
 
 
 class IdeaCreate(BaseModel):
+    # Sin autor_id a propósito: el autor se deriva del token en
+    # ideas/router.py:crear_idea, no se acepta del cliente.
     titulo: str
-    autor_id: int
 
 
 class MensajeEntrevistaCreate(BaseModel):

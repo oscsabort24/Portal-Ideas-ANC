@@ -1,7 +1,8 @@
 import { apiGet, apiPost } from '../core/api'
 import type { EstadoIdea, EventoLineaTiempo, Idea, IdeaDetalle, RespuestaEntrevista } from './types'
 
-export function crearIdea(payload: { titulo: string; autor_id: number }): Promise<Idea> {
+// Sin autor_id: el backend lo deriva del token (ver ideas/router.py:crear_idea).
+export function crearIdea(payload: { titulo: string }): Promise<Idea> {
   return apiPost<Idea>('/ideas', payload)
 }
 
