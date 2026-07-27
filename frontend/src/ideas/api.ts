@@ -17,8 +17,12 @@ export function listarIdeas(filtros: { autor_id?: number; estado?: EstadoIdea } 
   return apiGet<Idea[]>(`/ideas${query ? `?${query}` : ''}`)
 }
 
-export function enviarMensaje(ideaId: number, contenido: string): Promise<RespuestaEntrevista> {
-  return apiPost<RespuestaEntrevista>(`/ideas/${ideaId}/mensajes`, { contenido })
+export function enviarMensaje(ideaId: number, contenido: string, signal?: AbortSignal): Promise<RespuestaEntrevista> {
+  return apiPost<RespuestaEntrevista>(`/ideas/${ideaId}/mensajes`, { contenido }, signal)
+}
+
+export function enviarIdea(ideaId: number): Promise<Idea> {
+  return apiPost<Idea>(`/ideas/${ideaId}/enviar`, {})
 }
 
 export function obtenerLineaTiempo(ideaId: number): Promise<EventoLineaTiempo[]> {
@@ -29,6 +33,10 @@ export function obtenerResumen(ideaId: number): Promise<{ resumen: string; categ
   return apiGet<{ resumen: string; categoria_riesgo: string | null }>(`/ideas/${ideaId}/resumen`)
 }
 
-export function preguntarSobreIdea(ideaId: number, pregunta: string): Promise<{ respuesta: string }> {
-  return apiPost<{ respuesta: string }>(`/ideas/${ideaId}/preguntar`, { pregunta })
+export function preguntarSobreIdea(
+  ideaId: number,
+  pregunta: string,
+  origen: 'revision' | 'comite',
+): Promise<{ respuesta: string }> {
+  return apiPost<{ respuesta: string }>(`/ideas/${ideaId}/preguntar`, { pregunta, origen })
 }

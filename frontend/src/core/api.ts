@@ -64,12 +64,13 @@ export async function apiGet<T>(path: string): Promise<T> {
   return manejarRespuesta<T>(res)
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const headers = await construirHeadersAuth()
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
+    signal,
   })
   return manejarRespuesta<T>(res)
 }
