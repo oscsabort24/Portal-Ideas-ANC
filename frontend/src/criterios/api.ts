@@ -1,5 +1,5 @@
-import { apiGet, apiPost, apiPostFormData } from '../core/api'
-import type { DocumentoCriterio, PinDefinir, TipoCriterio } from './types'
+import { apiGet, apiPatch, apiPost, apiPostFormData } from '../core/api'
+import type { DocumentoCriterio, DocumentoCriterioEditar, PinDefinir, TipoCriterio } from './types'
 
 export function obtenerEstadoPin(): Promise<{ tiene_pin: boolean }> {
   return apiGet<{ tiene_pin: boolean }>('/criterios/pin/estado')
@@ -31,4 +31,8 @@ export function subirDocumento(
   formData.append('archivo', archivo)
   formData.append('pin', pin)
   return apiPostFormData<DocumentoCriterio>(`/criterios/${tipo}`, formData)
+}
+
+export function editarDocumento(id: number, payload: DocumentoCriterioEditar): Promise<DocumentoCriterio> {
+  return apiPatch<DocumentoCriterio>(`/criterios/${id}`, payload)
 }

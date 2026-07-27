@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from criterios import models, schemas
-from criterios.archivos import borrar_archivo, guardar_archivo, validar_extension
+from criterios.archivos import borrar_archivo, extraer_texto_docx, guardar_archivo, validar_extension
 from criterios.models import TipoCriterio
 from criterios.seguridad import hashear_pin, verificar_pin
 from usuarios import models as usuarios_models
@@ -162,6 +162,16 @@ def subir_documento(
 
     ruta_archivo = guardar_archivo(archivo, tipo.value, siguiente_version, extension)
 
+    # Precarga `contenido` para que ya sea editable sin tener que volver a
+    # subir el archivo — solo para .docx, no hay extracción de .pdf (ver
+    # migración 0c05a39f74d4 para el porqué).
+    contenido_extraido: str | None = None
+    if extension == ".docx":
+        try:
+            contenido_extraido = extraer_texto_docx(ruta_archivo)
+        except Exception:
+            contenido_extraido = None
+
     try:
         if anterior:
             anterior.activo = False
@@ -171,6 +181,7 @@ def subir_documento(
             ruta_archivo=ruta_archivo,
             version=siguiente_version,
             activo=True,
+            contenido=contenido_extraido,
             subido_por_id=admin.id,
         )
         db.add(nuevo)
@@ -183,5 +194,40 @@ def subir_documento(
             status_code=409,
             detail="Otra persona subió una versión de este documento al mismo tiempo. Intenta de nuevo.",
         )
+
+    return nuevo
+
+
+@router.patch("/{documento_id}", response_model=schemas.DocumentoCriterioOut)
+def editar_documento(
+    documento_id: int,
+    payload: schemas.DocumentoCriterioEditar,
+    db: Session = Depends(get_db),
+    admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
+    """Edita `contenido`/`descripcion` de la versión ACTIVA in-place — no
+    crea una versión nueva (a diferencia de POST /criterios/{tipo}, que sí
+    reemplaza el documento y sube de versión). Ver criterios/models.py
+    para el razonamiento de por qué una edición de texto no versiona."""
+    documento = db.get(models.DocumentoCriterio, documento_id)
+    if not documento or not documento.activo:
+        raise HTTPException(status_code=404, detail="No hay un documento activo con ese id")
+
+    pin_admin = db.query(models.PinAdmin).filter_by(usuario_id=admin.id).first()
+    if not pin_admin:
+        raise HTTPException(status_code=400, detail="Todavía no has definido tu PIN personal")
+    if not verificar_pin(payload.pin, pin_admin.pin_hash):
+        raise HTTPException(status_code=403, detail="El PIN no es correcto")
+
+    if payload.contenido is not None:
+        documento.contenido = payload.contenido
+    if payload.descripcion is not None:
+        documento.descripcion = payload.descripcion
+    documento.actualizado_por_id = admin.id
+    documento.actualizado_en = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(documento)
+    return documento
 
     return nuevo

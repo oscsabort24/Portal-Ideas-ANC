@@ -60,3 +60,13 @@ def requerir_admin(
     if usuario_actual.rol != models.RolUsuario.admin:
         raise HTTPException(status_code=403, detail="Se requiere rol admin para esta acción")
     return usuario_actual
+
+
+def requerir_admin_o_gerente(
+    usuario_actual: models.Usuario = Depends(obtener_usuario_actual),
+) -> models.Usuario:
+    # Mismo criterio de acceso que el Panel de administración
+    # (ideas/router.py:ROLES_VEN_TODAS_LAS_IDEAS) — admin y gerente.
+    if usuario_actual.rol not in (models.RolUsuario.admin, models.RolUsuario.gerente):
+        raise HTTPException(status_code=403, detail="Se requiere rol admin o gerente para esta acción")
+    return usuario_actual
