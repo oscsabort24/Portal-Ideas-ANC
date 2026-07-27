@@ -29,8 +29,15 @@ SYSTEM_PROMPT_ENTREVISTA = (
 def crear_idea(
     payload: schemas.IdeaCreate,
     db: Session = Depends(get_db),
+    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
+    # Cualquier usuario registrado puede crear una idea — es la acción
+    # principal de un colaborador, no requiere rol especial.
     #
+    # PENDIENTE (no es parte de este commit de auth): autor_id se sigue
+    # tomando del payload, así que un usuario autenticado puede crear una
+    # idea a nombre de otro. Cerrarlo implica derivar autor_id de
+    # _usuario_actual, que es un cambio de lógica de negocio.
     autor = db.get(Usuario, payload.autor_id)
     if not autor:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -76,6 +83,7 @@ def listar_ideas(
 def obtener_idea(
     idea_id: int,
     db: Session = Depends(get_db),
+    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
     idea = db.get(Idea, idea_id)
     if not idea:
@@ -87,6 +95,7 @@ def obtener_idea(
 def linea_tiempo(
     idea_id: int,
     db: Session = Depends(get_db),
+    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
     idea = db.get(Idea, idea_id)
     if not idea:
@@ -99,6 +108,7 @@ def enviar_mensaje(
     idea_id: int,
     payload: schemas.MensajeEntrevistaCreate,
     db: Session = Depends(get_db),
+    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
     idea = db.get(Idea, idea_id)
     if not idea:
@@ -165,6 +175,7 @@ def enviar_mensaje(
 def enviar_idea(
     idea_id: int,
     db: Session = Depends(get_db),
+    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
     """Envío manual de la idea, disparado por el botón "Enviar idea" del
     chat (ver ChatEntrevista.tsx) — reemplaza el cierre automático que

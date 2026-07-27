@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { FiDownload, FiFileText } from 'react-icons/fi'
-import { urlDescarga } from '../api'
+import { descargarDocumentoActivo } from '../api'
 import type { DocumentoCriterio, TipoCriterio } from '../types'
 
 export default function DocumentoActivo({
@@ -9,6 +10,22 @@ export default function DocumentoActivo({
   tipo: TipoCriterio
   documento: DocumentoCriterio | null
 }) {
+  const [descargando, setDescargando] = useState(false)
+  const [errorDescarga, setErrorDescarga] = useState<string | null>(null)
+
+  async function handleDescargar() {
+    if (!documento) return
+    setDescargando(true)
+    setErrorDescarga(null)
+    try {
+      await descargarDocumentoActivo(tipo, documento.nombre_archivo)
+    } catch (err) {
+      setErrorDescarga(err instanceof Error ? err.message : 'No se pudo descargar el documento')
+    } finally {
+      setDescargando(false)
+    }
+  }
+
   if (!documento) {
     return (
       <div className="item-simple">
@@ -45,11 +62,13 @@ export default function DocumentoActivo({
           <span>{fecha}</span>
         </div>
         <div className="persona-card-actions">
-          <a className="btn-small" href={urlDescarga(tipo)} target="_blank" rel="noreferrer">
-            <FiDownload /> Descargar
-          </a>
+          <button className="btn-small" onClick={handleDescargar} disabled={descargando}>
+            <FiDownload /> {descargando ? 'Descargando...' : 'Descargar'}
+          </button>
         </div>
       </div>
+
+      {errorDescarga && <p className="form-error">{errorDescarga}</p>}
 
       {fechaEdicion && (
         <p className="form-help">

@@ -102,19 +102,36 @@ def _obtener_documento_activo(db: Session, tipo: TipoCriterio) -> models.Documen
     return documento
 
 
+# Los tres GET de abajo son admin como todo el resto del módulo: la pantalla
+# que los consume (CriteriosView) está detrás de `esAdmin` en el sidebar, y
+# estos documentos son los criterios de negocio que alimentan a la IA. La
+# clasificación automática NO pasa por HTTP (clasificacion/service.py lee
+# DocumentoCriterio directo de la BD), así que exigir admin acá no la afecta.
 @router.get("/{tipo}", response_model=schemas.DocumentoCriterioOut)
-def obtener_documento_activo(tipo: TipoCriterio, db: Session = Depends(get_db)):
+def obtener_documento_activo(
+    tipo: TipoCriterio,
+    db: Session = Depends(get_db),
+    _admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
     return _obtener_documento_activo(db, tipo)
 
 
 @router.get("/{tipo}/descargar")
-def descargar_documento_activo(tipo: TipoCriterio, db: Session = Depends(get_db)):
+def descargar_documento_activo(
+    tipo: TipoCriterio,
+    db: Session = Depends(get_db),
+    _admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
     documento = _obtener_documento_activo(db, tipo)
     return FileResponse(documento.ruta_archivo, filename=documento.nombre_archivo)
 
 
 @router.get("/{tipo}/historial", response_model=list[schemas.DocumentoCriterioOut])
-def historial_documento(tipo: TipoCriterio, db: Session = Depends(get_db)):
+def historial_documento(
+    tipo: TipoCriterio,
+    db: Session = Depends(get_db),
+    _admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
     return (
         db.query(models.DocumentoCriterio)
         .filter_by(tipo=tipo)

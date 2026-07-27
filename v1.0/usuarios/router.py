@@ -4,7 +4,12 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from usuarios import models, schemas
-from usuarios.dependencies import requerir_admin
+from usuarios.dependencies import (
+    IdentidadAutenticada,
+    obtener_identidad_autenticada,
+    obtener_usuario_actual,
+    requerir_admin,
+)
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -37,12 +42,22 @@ def _validar_puesto_unico(
 
 
 @router.get("", response_model=list[schemas.UsuarioOut])
-def listar_usuarios(db: Session = Depends(get_db)):
+def listar_usuarios(
+    db: Session = Depends(get_db),
+    _identidad: IdentidadAutenticada = Depends(obtener_identidad_autenticada),
+):
+    # Identidad y no usuario registrado: el onboarding llama a este endpoint
+    # para llenar el selector "Reporta a" ANTES de que exista el Usuario de
+    # quien lo está llenando (ver OnboardingPerfil.tsx).
     return db.query(models.Usuario).all()
 
 
 @router.get("/por-correo", response_model=schemas.UsuarioOut)
-def obtener_usuario_por_correo(correo: str, db: Session = Depends(get_db)):
+def obtener_usuario_por_correo(
+    correo: str,
+    db: Session = Depends(get_db),
+    _identidad: IdentidadAutenticada = Depends(obtener_identidad_autenticada),
+):
     """Busca un usuario por correo, case-insensitive.
 
     Usado por el flujo de onboarding tras login con Microsoft (MSAL): el
@@ -61,7 +76,11 @@ def obtener_usuario_por_correo(correo: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{usuario_id}", response_model=schemas.UsuarioOut)
-def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
+def obtener_usuario(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    _usuario_actual: models.Usuario = Depends(obtener_usuario_actual),
+):
     usuario = db.get(models.Usuario, usuario_id)
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -69,7 +88,32 @@ def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=schemas.UsuarioOut, status_code=201)
-def crear_usuario(payload: schemas.UsuarioCreate, db: Session = Depends(get_db)):
+def crear_usuario(
+    payload: schemas.UsuarioCreate,
+    db: Session = Depends(get_db),
+    identidad: IdentidadAutenticada = Depends(obtener_identidad_autenticada),
+):
+    """Alta de una persona. Dos llamadores legítimos, dos permisos distintos:
+
+    - Onboarding (OnboardingPerfil.tsx): alguien con token válido del tenant
+      que todavía no tiene fila en `usuarios` se da de alta A SÍ MISMO. Por
+      eso la dependencia es la identidad y no el usuario registrado.
+    - Admin (FormularioPersona.tsx): da de alta a terceros.
+
+    Cualquier otro caso se rechaza: sin este guard, cualquiera con un token
+    del tenant podría crear cuentas a nombre de otras personas. El rol nunca
+    se acepta del payload (UsuarioCreate no lo expone) — toda alta nace como
+    colaborador por el default del modelo, y solo un admin puede cambiarlo
+    después vía PATCH /usuarios/{id}.
+    """
+    es_admin = identidad.usuario is not None and identidad.usuario.rol == models.RolUsuario.admin
+    es_alta_propia = payload.correo.lower() == identidad.correo.lower()
+    if not es_admin and not es_alta_propia:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo un admin puede dar de alta a otra persona",
+        )
+
     puesto = db.get(models.Puesto, payload.puesto_id)
     if not puesto:
         raise HTTPException(status_code=404, detail="Puesto no encontrado")
@@ -164,12 +208,21 @@ def eliminar_departamento(
 
 
 @router.get("/departamentos/", response_model=list[schemas.DepartamentoOut])
-def listar_departamentos(db: Session = Depends(get_db)):
+def listar_departamentos(
+    db: Session = Depends(get_db),
+    _identidad: IdentidadAutenticada = Depends(obtener_identidad_autenticada),
+):
+    # Identidad y no usuario registrado: el onboarding necesita el catálogo
+    # de departamentos para poder elegir uno (ver OnboardingPerfil.tsx).
     return db.query(models.Departamento).all()
 
 
 @router.post("/departamentos/", response_model=schemas.DepartamentoOut, status_code=201)
-def crear_departamento(payload: schemas.DepartamentoCreate, db: Session = Depends(get_db)):
+def crear_departamento(
+    payload: schemas.DepartamentoCreate,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(requerir_admin),
+):
     departamento = models.Departamento(**payload.model_dump())
     db.add(departamento)
     db.commit()
@@ -178,7 +231,12 @@ def crear_departamento(payload: schemas.DepartamentoCreate, db: Session = Depend
 
 
 @router.get("/puestos/", response_model=list[schemas.PuestoOut])
-def listar_puestos(db: Session = Depends(get_db)):
+def listar_puestos(
+    db: Session = Depends(get_db),
+    _identidad: IdentidadAutenticada = Depends(obtener_identidad_autenticada),
+):
+    # Identidad y no usuario registrado: el onboarding necesita el catálogo
+    # de puestos para poder elegir uno (ver OnboardingPerfil.tsx).
     return db.query(models.Puesto).all()
 
 
@@ -274,12 +332,21 @@ def eliminar_puesto(
 
 
 @router.get("/cab/", response_model=list[schemas.MiembroCABDetalleOut])
-def listar_miembros_cab(db: Session = Depends(get_db)):
+def listar_miembros_cab(
+    db: Session = Depends(get_db),
+    _usuario_actual: models.Usuario = Depends(obtener_usuario_actual),
+):
+    # Lo consume useEsMiembroCab (cualquier usuario registrado necesita saber
+    # si pertenece a algún CAB para que el sidebar decida qué mostrar).
     return db.query(models.MiembroCAB).all()
 
 
 @router.post("/cab/", response_model=schemas.MiembroCABOut, status_code=201)
-def agregar_miembro_cab(payload: schemas.MiembroCABCreate, db: Session = Depends(get_db)):
+def agregar_miembro_cab(
+    payload: schemas.MiembroCABCreate,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(requerir_admin),
+):
     usuario = db.get(models.Usuario, payload.usuario_id)
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")

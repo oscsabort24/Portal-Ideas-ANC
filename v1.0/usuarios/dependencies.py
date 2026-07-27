@@ -6,7 +6,21 @@ cae a X-Usuario-Id — ese fallback existe SOLO para desarrollo local sin
 Azure AD configurado (modo simulado del frontend, ver frontend/src/core/api.ts);
 en producción el frontend siempre manda Authorization real, así que esa rama
 nunca se ejercita ahí.
+
+Hay DOS dependencias de autenticación, y la diferencia importa:
+
+- obtener_identidad_autenticada: exige credenciales válidas, pero NO exige
+  que exista una fila en `usuarios`. Es la que necesita el onboarding: una
+  persona que acaba de entrar con Microsoft por primera vez tiene token
+  válido y todavía no tiene Usuario. Si el onboarding usara
+  obtener_usuario_actual quedaría en un bloqueo circular permanente (no
+  puede crear su usuario porque no tiene usuario).
+
+- obtener_usuario_actual: exige además que la identidad corresponda a un
+  Usuario registrado. Es la dependencia por defecto para todo lo demás.
 """
+
+from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import func
@@ -17,11 +31,25 @@ from core.database import get_db
 from usuarios import models
 
 
-def obtener_usuario_actual(
+@dataclass
+class IdentidadAutenticada:
+    """Quién hizo la request, tenga o no fila en `usuarios`.
+
+    `usuario` es None solo en el caso de onboarding (token válido de una
+    cuenta del tenant que todavía no se registró). `correo` siempre viene
+    lleno y es la fuente de verdad para decidir si alguien se está dando
+    de alta a sí mismo o a un tercero.
+    """
+
+    correo: str
+    usuario: models.Usuario | None
+
+
+def obtener_identidad_autenticada(
     authorization: str | None = Header(default=None),
     x_usuario_id: int | None = Header(default=None),
     db: Session = Depends(get_db),
-) -> models.Usuario:
+) -> IdentidadAutenticada:
     if authorization:
         if not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="Authorization debe ser 'Bearer {token}'")
@@ -40,18 +68,28 @@ def obtener_usuario_actual(
             raise HTTPException(status_code=401, detail="El token no contiene un correo utilizable")
 
         # Misma búsqueda case-insensitive que GET /usuarios/por-correo.
-        usuario = db.query(models.Usuario).filter(func.lower(models.Usuario.correo) == func.lower(correo)).first()
-        if not usuario:
-            raise HTTPException(status_code=401, detail="No existe un usuario registrado con ese correo")
-        return usuario
+        usuario = (
+            db.query(models.Usuario)
+            .filter(func.lower(models.Usuario.correo) == func.lower(correo))
+            .first()
+        )
+        return IdentidadAutenticada(correo=correo, usuario=usuario)
 
     if x_usuario_id is not None:
         usuario = db.get(models.Usuario, x_usuario_id)
         if not usuario:
             raise HTTPException(status_code=401, detail="Usuario no encontrado")
-        return usuario
+        return IdentidadAutenticada(correo=usuario.correo, usuario=usuario)
 
     raise HTTPException(status_code=401, detail="Falta autenticación: Authorization Bearer o X-Usuario-Id")
+
+
+def obtener_usuario_actual(
+    identidad: IdentidadAutenticada = Depends(obtener_identidad_autenticada),
+) -> models.Usuario:
+    if identidad.usuario is None:
+        raise HTTPException(status_code=401, detail="No existe un usuario registrado con ese correo")
+    return identidad.usuario
 
 
 def requerir_admin(
