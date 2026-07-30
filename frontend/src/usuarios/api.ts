@@ -21,6 +21,14 @@ export function obtenerUsuarioPorCorreo(correo: string): Promise<Usuario> {
   return apiGet<Usuario>(`/usuarios/por-correo?correo=${encodeURIComponent(correo)}`)
 }
 
+/**
+ * Accesos rápidos de desarrollo (ver core/dev_router.py). Solo responde si
+ * el backend tiene ENTORNO=development — en producción el endpoint no existe.
+ */
+export function devLogin(correo: string): Promise<Usuario> {
+  return apiPost<Usuario>('/auth/dev-login', { correo })
+}
+
 export function crearUsuario(payload: UsuarioCreate): Promise<Usuario> {
   return apiPost<Usuario>('/usuarios', payload)
 }

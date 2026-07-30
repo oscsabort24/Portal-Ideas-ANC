@@ -1,14 +1,41 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import type { UsuarioBasico } from './types'
 
-// Usuario fijo mientras no exista login (ver ideas/router.py: autor_id hardcodeado en 1).
-// Rol admin para poder seguir probando editar/eliminar (usuarios/dependencies.py: requerir_admin).
-export const USUARIO_ACTUAL: UsuarioBasico = {
-  id: 1,
-  nombre: 'Oscar Saborío',
-  correo: 'oscar.prueba@anc-prueba.com',
-  rol: 'admin',
+// TEMPORAL — clave de sessionStorage donde LoginScreen guarda el usuario
+// completo que devolvió /auth/dev-login (no solo un booleano), para que
+// sobreviva al `window.location.href = '/'` que sigue al elegir un acceso
+// rápido: ese reload reinicializa este módulo desde cero, así que sin esto
+// USUARIO_ACTUAL siempre volvía al default hardcodeado de abajo.
+export const CLAVE_DEV_LOGIN_HECHO = 'dev_login_hecho'
+
+function usuarioInicial(): UsuarioBasico {
+  const guardado = sessionStorage.getItem(CLAVE_DEV_LOGIN_HECHO)
+  if (guardado) {
+    try {
+      const parseado = JSON.parse(guardado)
+      // No basta con que JSON.parse no lance excepción: 'true' (el valor
+      // viejo, de antes de guardar el usuario completo) es JSON válido y
+      // parsea a un booleano sin error. Hay que confirmar que además tenga
+      // forma de usuario, o USUARIO_ACTUAL termina siendo `true` y cualquier
+      // acceso a sus campos (ej. .nombre.split) revienta.
+      if (parseado && typeof parseado === 'object' && typeof parseado.nombre === 'string') {
+        return parseado as UsuarioBasico
+      }
+    } catch {
+      // JSON corrupto/inesperado: cae al default de abajo.
+    }
+  }
+  // Usuario fijo mientras no exista login (ver ideas/router.py: autor_id hardcodeado en 1).
+  // Rol admin para poder seguir probando editar/eliminar (usuarios/dependencies.py: requerir_admin).
+  return {
+    id: 1,
+    nombre: 'Oscar Saborío',
+    correo: 'oscar.prueba@anc-prueba.com',
+    rol: 'admin',
+  }
 }
+
+export const USUARIO_ACTUAL: UsuarioBasico = usuarioInicial()
 
 export const UsuarioActualContext = createContext<UsuarioBasico>(USUARIO_ACTUAL)
 

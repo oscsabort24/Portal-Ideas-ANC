@@ -6,7 +6,13 @@ import { obtenerUsuarioPorCorreo } from '../usuarios/api'
 import type { Usuario } from '../usuarios/types'
 import { azureAdConfigurado, msalConfig } from './authConfig'
 import LoginScreen from './LoginScreen'
-import { UsuarioActualContext, UsuarioActualProvider, USUARIO_ACTUAL, actualizarUsuarioActual } from './UsuarioActualContext'
+import {
+  UsuarioActualContext,
+  UsuarioActualProvider,
+  USUARIO_ACTUAL,
+  actualizarUsuarioActual,
+  CLAVE_DEV_LOGIN_HECHO,
+} from './UsuarioActualContext'
 
 // Exportada para poder pedir tokens fuera de un componente React (ver
 // core/api.ts:obtenerUsuarioActualSeguroDePrueba, que usa acquireTokenSilent
@@ -100,15 +106,48 @@ function ResolverUsuarioMsal({ children }: { children: ReactNode }) {
   )
 }
 
+/**
+ * TEMPORAL — decide entre los 3 caminos posibles en desarrollo, evaluado
+ * SIEMPRE (con o sin Azure AD configurado):
+ *
+ * 1. import.meta.env.DEV && sin CLAVE_DEV_LOGIN_HECHO -> LoginScreen, para
+ *    poder usar los botones de "acceso rápido" (/auth/dev-login).
+ * 2. CLAVE_DEV_LOGIN_HECHO ya marcada -> se entra directo con el usuario que
+ *    dev-login ya resolvió (actualizarUsuarioActual), SIN pasar por
+ *    ResolverUsuarioMsal — si no, como no hay cuenta MSAL real, ese
+ *    componente siempre volvería a mandar a LoginScreen sin importar lo que
+ *    hizo dev-login.
+ * 3. Ninguno de los anteriores (producción, o dev-login nunca se usó) ->
+ *    flujo real de MSAL.
+ */
+function ContenidoAutenticado({ children }: { children: ReactNode }) {
+  const devLoginHecho = sessionStorage.getItem(CLAVE_DEV_LOGIN_HECHO)
+
+  if (import.meta.env.DEV && !devLoginHecho) {
+    return <LoginScreen />
+  }
+
+  if (devLoginHecho) {
+    return <UsuarioActualProvider>{children}</UsuarioActualProvider>
+  }
+
+  return <ResolverUsuarioMsal>{children}</ResolverUsuarioMsal>
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   if (!azureAdConfigurado || !msalInstance) {
+    // TEMPORAL — mismo criterio que ContenidoAutenticado, pero sin
+    // MsalProvider de por medio (no hay credenciales de Azure AD).
+    if (import.meta.env.DEV && !sessionStorage.getItem(CLAVE_DEV_LOGIN_HECHO)) {
+      return <LoginScreen />
+    }
     // Modo simulado: sin credenciales de Azure AD todavía, se usa el usuario fijo actual.
     return <UsuarioActualProvider>{children}</UsuarioActualProvider>
   }
 
   return (
     <MsalProvider instance={msalInstance}>
-      <ResolverUsuarioMsal>{children}</ResolverUsuarioMsal>
+      <ContenidoAutenticado>{children}</ContenidoAutenticado>
     </MsalProvider>
   )
 }
