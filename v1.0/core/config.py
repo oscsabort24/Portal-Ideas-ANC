@@ -18,6 +18,23 @@ class Settings(BaseSettings):
 
     port: int = 8000
 
+    # Gate de los accesos rápidos de desarrollo (/auth/dev-login). Default
+    # "production" a propósito: para activarlos hay que setear ENTORNO=development
+    # explícitamente en .env — un .env faltante o mal copiado nunca los activa por error.
+    entorno: str = "production"
+
+    # Orígenes permitidos por CORS, separados por coma — ver main.py.
+    # Cubre ambos puertos de Vite porque el 5173 puede estar ocupado
+    # (ej. otra instancia corriendo) y Vite sube automáticamente al 5174,
+    # sin avisar con un error obvio: la request simplemente falla por CORS.
+    # En producción, IT/despliegue debe sobreescribir esta variable con el
+    # dominio real del frontend — nunca dejar los puertos de localhost.
+    cors_allowed_origins: str = "http://localhost:5173,http://localhost:5174"
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origen.strip() for origen in self.cors_allowed_origins.split(",") if origen.strip()]
+
     # App registrada en Azure AD para validar tokens de Microsoft (core/auth.py).
     azure_tenant_id: str = "d65ee34b-c754-4f66-8183-35ac0ba333e9"
     azure_api_audience: str = "api://3a7ec4f9-f75a-46dd-ab57-1b0005e6c56b"
