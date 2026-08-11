@@ -138,6 +138,7 @@ def guardar_rice(
         esfuerzo=payload.esfuerzo,
         paises=payload.paises,
         presupuesto_rango=payload.presupuesto_rango,
+        impacta_plan_estrategico=payload.impacta_plan_estrategico,
     )
 
     rice = db.query(RiceEvaluacion).filter_by(comite_idea_id=comite.id).first()

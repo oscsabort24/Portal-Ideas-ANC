@@ -23,5 +23,15 @@ class DocumentoCriterioOut(BaseModel):
     nombre_archivo: str
     version: int
     activo: bool
+    contenido: str | None = None
+    descripcion: str | None = None
     subido_por: UsuarioResumenOut
     subido_en: datetime
+    actualizado_por: UsuarioResumenOut | None = None
+    actualizado_en: datetime | None = None
+
+
+class DocumentoCriterioEditar(BaseModel):
+    contenido: str | None = None
+    descripcion: str | None = Field(default=None, max_length=500)
+    pin: str

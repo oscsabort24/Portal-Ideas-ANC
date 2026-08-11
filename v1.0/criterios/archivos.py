@@ -1,9 +1,18 @@
 import os
 import uuid
 
+from docx import Document
 from fastapi import HTTPException, UploadFile
 
 EXTENSIONES_PERMITIDAS = {".docx", ".pdf"}
+
+
+def extraer_texto_docx(ruta_archivo: str) -> str:
+    """Compartida entre clasificacion/service.py (clasificación automática
+    con IA) y criterios/router.py (precarga de `contenido` editable al
+    subir un criterio nuevo) — un solo lugar para no duplicar la lógica."""
+    documento = Document(ruta_archivo)
+    return "\n".join(p.text for p in documento.paragraphs if p.text.strip())
 
 DIRECTORIO_BASE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads", "criterios")
 

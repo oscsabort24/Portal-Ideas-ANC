@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Unicode
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -42,7 +42,7 @@ class AnalisisRiesgoIdea(Base):
     categoria: Mapped[CategoriaRiesgo] = mapped_column(
         Enum(CategoriaRiesgo, name="categoria_riesgo"), nullable=False
     )
-    justificacion: Mapped[str] = mapped_column(Text, nullable=False)
+    justificacion: Mapped[str] = mapped_column(Unicode(), nullable=False)
 
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

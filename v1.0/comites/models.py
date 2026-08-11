@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, Unicode
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -41,7 +41,7 @@ class ComiteIdea(Base):
     idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id"), unique=True, nullable=False)
     tipo_cab: Mapped[TipoCAB] = mapped_column(Enum(TipoCAB, name="tipo_cab_comite"), nullable=False)
     estado: Mapped[EstadoComite] = mapped_column(Enum(EstadoComite, name="estado_comite"), nullable=False)
-    motivo_rechazo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    motivo_rechazo: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
 
     aprobada_o_rechazada_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     aprobada_o_rechazada_por: Mapped["Usuario | None"] = relationship()
@@ -99,8 +99,8 @@ class RiceEvaluacion(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     comite_idea_id: Mapped[int] = mapped_column(ForeignKey("comite_ideas.id"), unique=True, nullable=False)
 
-    area: Mapped[str] = mapped_column(String(200), nullable=False)
-    lider_funcional: Mapped[str] = mapped_column(String(200), nullable=False)
+    area: Mapped[str] = mapped_column(Unicode(200), nullable=False)
+    lider_funcional: Mapped[str] = mapped_column(Unicode(200), nullable=False)
     paises: Mapped[int] = mapped_column(Integer, nullable=False)
     presupuesto_rango: Mapped[PresupuestoRango] = mapped_column(
         Enum(PresupuestoRango, name="presupuesto_rango"), nullable=False

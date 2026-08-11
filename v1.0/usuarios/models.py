@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Unicode, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
@@ -35,7 +35,7 @@ class Departamento(Base):
     __tablename__ = "departamentos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    nombre: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
+    nombre: Mapped[str] = mapped_column(Unicode(150), unique=True, nullable=False)
 
     usuarios: Mapped[list["Usuario"]] = relationship(back_populates="departamento")
     puestos: Mapped[list["Puesto"]] = relationship(back_populates="departamento")
@@ -54,7 +54,7 @@ class Puesto(Base):
     __table_args__ = (UniqueConstraint("nombre", "departamento_id", name="uq_puesto_nombre_departamento"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    nombre: Mapped[str] = mapped_column(String(200), nullable=False)
+    nombre: Mapped[str] = mapped_column(Unicode(200), nullable=False)
     departamento_id: Mapped[int] = mapped_column(ForeignKey("departamentos.id"), nullable=False)
     es_unico_por_pais: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
@@ -66,8 +66,8 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    nombre: Mapped[str] = mapped_column(String(200), nullable=False)
-    correo: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    nombre: Mapped[str] = mapped_column(Unicode(200), nullable=False)
+    correo: Mapped[str] = mapped_column(Unicode(200), unique=True, nullable=False)
     rol: Mapped[RolUsuario] = mapped_column(
         Enum(RolUsuario, name="rol_usuario"), default=RolUsuario.colaborador, nullable=False
     )

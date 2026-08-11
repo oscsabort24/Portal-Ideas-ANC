@@ -17,21 +17,16 @@ llena clasificado_por_id con el admin real que corrige o clasifica a mano).
 import logging
 from datetime import datetime, timezone
 
-from docx import Document
 from sqlalchemy.orm import Session
 
 from clasificacion.models import ClasificacionIdea, EstadoClasificacion
 from comites.service import crear_comite_idea_para_idea
 from core.claude_client import clasificar_idea
+from criterios.archivos import extraer_texto_docx
 from criterios.models import DocumentoCriterio, TipoCriterio
 from ideas.models import Idea, MensajeEntrevista
 
 logger = logging.getLogger(__name__)
-
-
-def _extraer_texto_docx(ruta_archivo: str) -> str:
-    documento = Document(ruta_archivo)
-    return "\n".join(p.text for p in documento.paragraphs if p.text.strip())
 
 
 def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
@@ -54,7 +49,13 @@ def _clasificar_con_ia(db: Session, idea: Idea) -> dict | None:
         return None
 
     try:
-        criterio_texto = _extraer_texto_docx(documento.ruta_archivo)
+        # `contenido` (precargado al subir, editable inline vía
+        # PATCH /criterios/{id}) es la fuente de verdad si existe — así la
+        # IA usa el texto tal como lo dejó el admin, no el .docx original
+        # sin sus correcciones. Solo se re-extrae del archivo como
+        # fallback para filas viejas que quedaron sin backfill (ej. un
+        # .pdf activo, que no tiene extracción automática).
+        criterio_texto = documento.contenido or extraer_texto_docx(documento.ruta_archivo)
         historial = _historial_para_ia(db, idea.id)
         return clasificar_idea(historial, criterio_texto)
     except Exception:

@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, Unicode, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -28,13 +28,26 @@ class DocumentoCriterio(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tipo: Mapped[TipoCriterio] = mapped_column(Enum(TipoCriterio, name="tipo_criterio"), nullable=False)
-    nombre_archivo: Mapped[str] = mapped_column(String(300), nullable=False)
-    ruta_archivo: Mapped[str] = mapped_column(String(500), nullable=False)
+    nombre_archivo: Mapped[str] = mapped_column(Unicode(300), nullable=False)
+    ruta_archivo: Mapped[str] = mapped_column(Unicode(500), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Texto editable del criterio (precargado desde el .docx al subir, ver
+    # criterios/router.py:subir_documento) y explicación corta de para qué
+    # sirve — ambos editables inline vía PATCH /criterios/{id} SIN generar
+    # una versión nueva (a diferencia de subir_documento): una edición de
+    # texto es una corrección sobre la MISMA versión activa, no un
+    # reemplazo de documento. actualizado_por/actualizado_en solo se llenan
+    # si hubo al menos una edición inline (quedan NULL si nunca se tocó).
+    contenido: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+    descripcion: Mapped[str | None] = mapped_column(Unicode(500), nullable=True)
+    actualizado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    actualizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actualizado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[actualizado_por_id])
+
     subido_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
-    subido_por: Mapped["Usuario"] = relationship()
+    subido_por: Mapped["Usuario"] = relationship(foreign_keys=[subido_por_id])
     subido_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -51,7 +64,7 @@ class PinAdmin(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), unique=True, nullable=False)
-    pin_hash: Mapped[str] = mapped_column(String(200), nullable=False)
+    pin_hash: Mapped[str] = mapped_column(Unicode(200), nullable=False)
     actualizado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

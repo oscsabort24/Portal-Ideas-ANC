@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Unicode
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -34,7 +34,7 @@ class RevisionIdea(Base):
     estado: Mapped[EstadoRevision] = mapped_column(
         Enum(EstadoRevision, name="estado_revision"), nullable=False
     )
-    retroalimentacion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retroalimentacion: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
     fecha_asignacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fecha_resolucion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -50,7 +50,7 @@ class RevisionIdea(Base):
         ForeignKey("departamentos.id"), nullable=True
     )
     departamento_sugerido_ia: Mapped["Departamento | None"] = relationship()
-    justificacion_ia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    justificacion_ia: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
     acepto_sugerencia_autor: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     creado_en: Mapped[datetime] = mapped_column(
@@ -75,7 +75,7 @@ class HistorialRetroalimentacion(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     revision_id: Mapped[int] = mapped_column(ForeignKey("revision_ideas.id"), nullable=False)
-    retroalimentacion: Mapped[str] = mapped_column(Text, nullable=False)
+    retroalimentacion: Mapped[str] = mapped_column(Unicode(), nullable=False)
     creada_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
     creada_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
