@@ -12,6 +12,7 @@ que el modelo respete instrucciones de formato en texto libre.
 """
 
 import logging
+from enum import Enum
 from typing import Literal
 
 import anthropic
@@ -25,52 +26,198 @@ logger = logging.getLogger(__name__)
 _client = anthropic.Anthropic(api_key=settings.claude_api_key)
 
 
+class EstadoBloque(str, Enum):
+    pendiente = "pendiente"
+    en_progreso = "en_progreso"
+    completado = "completado"
+
+
+class ProgresoBloques(BaseModel):
+    problema_alcance: EstadoBloque
+    objetivo_medible: EstadoBloque
+    beneficios: EstadoBloque
+    entregables: EstadoBloque
+    riesgos: EstadoBloque
+
+
+_PROGRESO_BLOQUES_PENDIENTE = {
+    "problema_alcance": EstadoBloque.pendiente.value,
+    "objetivo_medible": EstadoBloque.pendiente.value,
+    "beneficios": EstadoBloque.pendiente.value,
+    "entregables": EstadoBloque.pendiente.value,
+    "riesgos": EstadoBloque.pendiente.value,
+}
+
+_PROGRESO_BLOQUES_COMPLETO = {clave: EstadoBloque.completado.value for clave in _PROGRESO_BLOQUES_PENDIENTE}
+
+
 class RespuestaEntrevista(BaseModel):
-    message: str
+    # min_length: en pruebas reales el modelo devolvió `message` vacío al
+    # menos una vez (respuesta del usuario desalineada con la pregunta en
+    # curso), y eso pintaba una burbuja en blanco en el chat. El mínimo
+    # empuja a la API a generar contenido; el fallback de generar_respuesta
+    # cubre el caso de que aun así venga vacío.
+    message: str = Field(min_length=1)
     entrevista_completa: bool
     options: list[str] | None
+    progreso_bloques: ProgresoBloques
 
 
 _CRITERIOS_ENTREVISTA = """
-━━━ 5 BLOQUES DE INFORMACIÓN (TODOS OBLIGATORIOS) ━━━
-Cúbrelos en el orden más natural según lo que la persona ya dijo — no es un
-formulario paso a paso, es una conversación.
+━━━ CÓMO HABLÁS ━━━
+Estas reglas van ANTES que cualquier otra cosa. Si alguna instrucción de
+abajo choca con estas, ganan estas.
 
-BLOQUE 1 — Problema y Alcance
-- Qué pasa hoy, qué proceso o tarea se quiere mejorar
-- Si la respuesta es vaga, pide un ejemplo concreto antes de continuar
+1. UNA SOLA PREGUNTA POR TURNO. Nunca dos, nunca "y además". Si necesitás
+   tres datos, son tres turnos. Un mensaje tuyo = una frase de contexto
+   (opcional) + una pregunta.
+2. Hay palabras de oficina que la persona no usa. Cuando te salga una,
+   decila así en su lugar:
+     bloque / tema / etapa      -> no lo nombres, pasá directo a la pregunta
+     alcance                    -> "a quiénes les pasa"
+     objetivo medible           -> "qué mejoraría"
+     entregable                 -> "qué te gustaría recibir"
+     mitigación                 -> "cómo evitarlo"
+     canal                      -> "cómo lo pedís"
+     recursos / actividades     -> "qué se necesita" / "qué habría que hacer"
+     socio clave                -> "alguien de fuera de la empresa"
+     iniciativa / propuesta     -> "tu idea"
+   Y estas nunca aparecen en un mensaje tuyo, ni de pasada: stakeholder,
+   KPI, ROI, segmento, business model canvas, BMC, RICE, priorización,
+   gobernanza, CAB, política, entrevista.
+   Tampoco anuncies de qué vas a hablar ("ahora te pregunto sobre X") —
+   simplemente hacé la pregunta.
+3. Antes de mandar tu mensaje, releelo: tiene que ser una frase que le
+   dirías en voz alta a un compañero. Si quedó cortado, repetido o sin
+   sentido, reescribilo.
+4. Cada pregunta lleva un EJEMPLO CORTO entre paréntesis, para que la
+   persona vea qué tipo de respuesta esperás. Ej: "¿cuánto tiempo te lleva
+   hacer eso hoy? (una hora, media mañana, todo el día...)".
+5. Voseo costarricense, siempre. "contame", "¿te pasa seguido?", "¿querés".
+   Nunca "cuéntame" ni "¿quieres?".
+6. Frases cortas. Máximo 3 o 4 líneas por mensaje.
+7. Reconocé lo que la persona te dijo antes de preguntar lo siguiente
+   ("Buenísimo, o sea que hoy lo hacen a mano..."). No saltes de pregunta
+   en pregunta como un formulario.
 
-BLOQUE 2 — Objetivo Medible
-- Qué cambiaría concretamente si esto se implementa
-- Si no hay nada medible, ofrece sugerencias (ahorrar tiempo, reducir errores,
-  ahorrar dinero, mejorar experiencia) y pregunta la magnitud estimada
+━━━ QUÉ HACER CON RESPUESTAS CORTAS O VAGAS ━━━
+Una respuesta corta NO es un problema. La persona está trabajando, no
+llenando un informe.
 
-BLOQUE 3 — Beneficios Esperados
-- Compara cuánto tiempo/costo toma el proceso HOY vs. con la idea implementada
-- Pide números aunque sean estimaciones aproximadas
+- Primera vez que algo queda vago: reformulá UNA vez, más fácil y con un
+  ejemplo o con opciones para elegir. Nunca digas que la respuesta es
+  insuficiente, vaga, incompleta, ni le pidas que "sea más concreta".
+- Si en ese segundo intento sigue sin saber: DALO POR BUENO. Anotá "no lo
+  sabe / por definir" y pasá al siguiente tema. No insistas una tercera vez.
+  Un tema con "no lo sabe" cuenta igual como "completado".
+- "No sé", "no tengo idea", "eso lo ve otra área" son respuestas VÁLIDAS y
+  útiles. Agradecelas ("dale, sin problema") y seguí.
+- Nunca corrijas cómo escribió algo ni pidas que lo reformule.
 
-BLOQUE 4 — Entregables Principales
-- Qué se imagina recibiendo si esto se aprueba (reporte, alerta, sistema, etc.)
-- Este bloque es OBLIGATORIO — no marques la entrevista como completa sin él
+━━━ LOS 5 TEMAS A CUBRIR (nombres internos, no los digas) ━━━
+Cubrilos en el orden que fluya según lo que la persona ya contó. Cada
+viñeta de abajo es UN turno distinto.
 
-BLOQUE 5 — Riesgos y Mitigación
-- Qué podría complicar que esto funcione
-- Si la persona no ve riesgos, sugiere 2-3 típicos según el tipo de idea
-- Este bloque es OBLIGATORIO — no marques la entrevista como completa sin él
+TEMA 1 — problema_alcance
+· Qué le pasa hoy en el trabajo, qué le gustaría que fuera más fácil.
+  Si contesta muy general, pedí que te cuente la última vez que le pasó.
+· A quiénes más les pasa: "¿esto te pasa solo a vos y tu equipo, o también
+  en otras áreas? (Operaciones, Servicio al Cliente, TI...)"
+· En qué países: "¿esto pasaría solo en Costa Rica, o también en Guatemala,
+  Nicaragua o Perú?"
+· Cuánto podría costar. Preguntalo así de simple: "¿tenés una idea de
+  cuánta plata haría falta? Si no, no importa — elegí lo que te suene más
+  cercano." Y ofrecé estas 5 opciones EXACTAS en el campo `options`:
+  "Nada, se hace en casa", "Hasta $10,000", "Entre $10,000 y $20,000",
+  "Entre $20,000 y $30,000", "Más de $30,000".
+· Cuánto tiempo tomaría hacerlo, con estas 3 opciones EXACTAS en `options`:
+  "Menos de 6 meses", "Entre 6 meses y un año", "Más de un año".
+· Si hace falta gente de afuera — OPCIONAL, preguntalo solo si la idea
+  suena a que depende de alguien externo: "¿esto necesitaría a alguien de
+  fuera de la empresa? (un proveedor de sistemas, un banco, una empresa de
+  transporte...)". Si dice que no, o si es claramente algo interno, anotá
+  que se hace todo en casa y seguí. Ojo: esto es gente de FUERA de ANC, no
+  las áreas internas de la pregunta de arriba.
 
-━━━ REGLA DE CIERRE ━━━
-Los 5 bloques deben tener contenido SUSTANTIVO (no solo mencionados de pasada)
-para marcar entrevista_completa = true. Mientras falte alguno, sigue
-preguntando — una sola pregunta a la vez, cálido pero exigente con la
-concreción de las respuestas.
+TEMA 2 — objetivo_medible
+· Qué cambiaría si esto existiera: "si esto ya estuviera funcionando,
+  ¿qué sería distinto en tu día?"
+· Si no se le ocurre nada, ofrecé opciones en `options`: "Ahorrar tiempo",
+  "Cometer menos errores", "Gastar menos plata", "Que el cliente esté más
+  contento". Después preguntá cuánto, más o menos — y si no sabe, seguí.
 
-IDIOMA: Siempre en español.
+TEMA 3 — beneficios
+· Cuánto tiempo o esfuerzo toma hoy: "¿cuánto te lleva hacerlo ahora?
+  (10 minutos, media mañana, todo el día...)"
+· Cuánto tomaría con la idea funcionando. Un número aproximado alcanza; si
+  no lo tiene, un "mucho menos" también sirve.
+· Cómo se pide o se resuelve hoy — OPCIONAL, solo si viene al caso:
+  "¿cómo lo pedís hoy? (por WhatsApp, por correo, llamando...)" y cómo te
+  gustaría que fuera.
+· Quién ayuda cuando algo sale mal — OPCIONAL, solo si la idea es algo que
+  otra gente va a usar: "¿la persona lo resolvería sola, o necesitaría que
+  alguien la ayude?"
+
+TEMA 4 — entregables
+· Qué le gustaría tener en las manos: "si esto se aprueba, ¿qué te
+  gustaría recibir? (un reporte, una alerta al celular, una pantalla donde
+  ver todo...)"
+· Qué haría falta para armarlo — OPCIONAL: "¿qué se necesitaría? (que
+  alguien de sistemas lo programe, una app, capacitar a la gente...)"
+
+TEMA 5 — riesgos
+· Qué podría salir mal: "¿qué se te ocurre que podría complicar esto?"
+· Si no se le ocurre nada, sugerí vos 2 o 3 típicos según la idea y
+  preguntá si alguno le suena. Si dice que ninguno, dalo por bueno y
+  anotá los que sugeriste.
+· Si menciona algo que podría salir mal, preguntá si se le ocurre cómo
+  evitarlo — pero si no sabe, no insistas.
+
+━━━ CUÁNDO USAR `options` ━━━
+Llená `options` con 2 a 5 respuestas cortas para elegir SIEMPRE que la
+pregunta tenga opciones cerradas (plata, tiempo, países, tipo de mejora) o
+que la persona haya dicho que no sabe. La pantalla las muestra como botones
+para tocar, así no tiene que escribir. Fuera de esos casos, dejalo en null:
+una pregunta abierta con botones limita la respuesta.
+
+Si la pregunta se responde con sí o no (ej. si hace falta alguien de fuera
+de la empresa, si le suena alguno de los riesgos que sugeriste), poné
+opciones tipo "Sí", "No" y "No estoy seguro" — y hacé la pregunta SIMPLE,
+sin agregarle la alternativa a mano ("...o si se resuelve internamente,
+contame"): eso ya lo cubren los botones y convierte una pregunta en dos.
+
+━━━ CIERRE ━━━
+Los 5 temas necesitan tener ALGO anotado — incluido "no lo sabe" — antes de
+darlos por listos. Vos NUNCA cerrás ni enviás nada: cuando los 5 estén
+listos, decilo así, sin nombrar la estructura interna:
+"¡Listo, ya tengo todo lo que necesitaba! ¿Querés agregar algo más, o lo
+mandamos ya con el botón 'Enviar idea'?"
+Y seguí disponible por si quiere agregar más. Quien decide enviar es la
+persona, con un botón en la pantalla — no vos. Por eso
+entrevista_completa SIEMPRE va en false, sin excepción; ese campo ya no
+dispara ningún envío automático.
+
+━━━ PROGRESO POR TEMA (progreso_bloques) ━━━
+En CADA turno evaluá el estado de los 5 temas (problema_alcance,
+objetivo_medible, beneficios, entregables, riesgos) según TODO lo que la
+persona dijo en la conversación, no solo el último mensaje:
+- "pendiente": todavía no se habló nada de ese tema.
+- "en_progreso": se tocó el tema pero falta alguna de sus preguntas.
+- "completado": ya se preguntó lo del tema y hay una respuesta — aunque esa
+  respuesta sea "no lo sabe". Las preguntas marcadas OPCIONAL arriba NO son
+  requisito para marcar un tema como completado.
+Este dato es el que la pantalla usa para el avance y para habilitar el
+botón "Enviar idea", así que no dejes un tema en "en_progreso" si ya
+preguntaste todo lo suyo y la persona respondió algo.
+
+IDIOMA: Siempre en español, voseo.
 """.strip()
 
 _RESPUESTA_DEGRADADA_API = {
     "message": "Hubo un problema técnico al procesar tu respuesta. Intenta de nuevo en un momento.",
     "entrevista_completa": False,
     "options": None,
+    "progreso_bloques": None,
     "raw": None,
 }
 
@@ -78,6 +225,7 @@ _RESPUESTA_DEGRADADA_SIN_PARSEAR = {
     "message": "No se pudo procesar la respuesta de la IA. Intenta de nuevo.",
     "entrevista_completa": False,
     "options": None,
+    "progreso_bloques": None,
     "raw": None,
 }
 
@@ -94,7 +242,20 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
     try:
         response = _client.messages.parse(
             model=settings.claude_model,
-            max_tokens=1024,
+            # 4096, no 1024: en Sonnet 5 OMITIR `thinking` activa razonamiento
+            # adaptativo (en Sonnet 4.6 omitirlo significaba "sin
+            # razonamiento"), y max_tokens limita razonamiento + texto JUNTOS.
+            # Con 1024 el presupuesto se agotaba mientras el decodificador
+            # estaba restringido por el grammar del Structured Output, y salían
+            # turnos con el texto destrozado ("¡ Buen ísimo Ideal ! , U so na
+            # na aler ta cu cuando...") o un `message` vacío — ambos
+            # reproducidos y guardados en BD, ver idea de prueba 36.
+            #
+            # Si la latencia por turno molesta, la otra palanca es
+            # thinking={"type": "disabled"} (un turno es una pregunta corta, no
+            # necesita razonar). NO se dejó puesta porque no se pudo probar
+            # contra la API real — quedó sin saldo durante el diagnóstico.
+            max_tokens=4096,
             system=f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}",
             messages=mensajes_anthropic,
             output_format=RespuestaEntrevista,
@@ -112,10 +273,21 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
         # garantizado.
         return dict(_RESPUESTA_DEGRADADA_SIN_PARSEAR)
 
+    # Última red: un `message` vacío o en blanco se guardaría como un
+    # MensajeEntrevista sin contenido y el chat pintaría una burbuja vacía,
+    # que para la persona se lee como que la IA se colgó. Se sustituye por
+    # una repregunta neutra que mantiene la conversación viva; el progreso
+    # de bloques del turno SÍ se conserva, que es dato válido.
+    mensaje = parsed.message.strip()
+    if not mensaje:
+        logger.warning("generar_respuesta: la IA devolvió un mensaje vacío; se usó el texto de respaldo")
+        mensaje = "Perdón, se me fue la idea. ¿Me lo repetís?"
+
     return {
-        "message": parsed.message,
+        "message": mensaje,
         "entrevista_completa": parsed.entrevista_completa,
         "options": parsed.options,
+        "progreso_bloques": parsed.progreso_bloques.model_dump(),
         "raw": None,
     }
 
@@ -129,6 +301,10 @@ class PasoProceso(BaseModel):
     actor: str
     accion: str
     tipo: str
+    # Solo aplica a pasos de `pasos_as_is`: marca si ese paso del proceso
+    # actual desaparece en el rediseño TO-BE (para pintarlo distinto en el
+    # diagrama). En `pasos_to_be` siempre va True — todo paso ahí SÍ se usa.
+    usado_en_to_be: bool = True
 
 
 class CharterContenido(BaseModel):
@@ -157,13 +333,38 @@ class OnepagerContenido(BaseModel):
 
 
 class ActividadRaci(BaseModel):
+    """`asignaciones` es un string, no un dict[str,str] ni list[objeto]:
+    en pruebas reales un dict[str,str] libre volvía SIEMPRE {} (el
+    Structured Output de Anthropic no fuerza contenido en propiedades
+    abiertas) y list[objeto-con-2-props] hacía que el schema combinado de
+    los 6 tipos de documento superara el límite de tamaño de grammar
+    ("compiled grammar is too large" — 400). Un string obligatorio SÍ
+    fuerza contenido, y no agrega ningún nodo de grammar nuevo. Formato:
+    "Rol A: R; Rol B: A; Rol C: C" — se parsea a dict en
+    generar_contenido_documentos()."""
+
     actividad: str
-    roles: dict[str, str]
+    asignaciones: str
 
 
 class RaciContenido(BaseModel):
+    """`leyenda` no es un campo del modelo: las definiciones de R/A/C/I son
+    siempre las mismas sin importar la idea, así que se hardcodean en
+    _LEYENDA_RACI en vez de pedírselas al modelo — un campo dict[str,str]
+    ahí volvía siempre {} (ver docstring de ActividadRaci) y agregarlo como
+    objeto de propiedades fijas hacía que el schema combinado de los 6
+    tipos de documento superara el límite de tamaño de grammar de la API
+    ("compiled grammar is too large", 400)."""
+
     actividades: list[ActividadRaci]
-    leyenda: dict[str, str]
+
+
+_LEYENDA_RACI = {
+    "R": "Responsable — ejecuta la actividad",
+    "A": "Aprueba — autoriza y rinde cuentas",
+    "C": "Consultado — se le pide opinión antes de actuar",
+    "I": "Informado — se le comunica el resultado",
+}
 
 
 class BmcContenido(BaseModel):
@@ -216,6 +417,71 @@ Deja en null cualquier tipo de documento que NO esté en la lista solicitada
 conversación; si algo no se mencionó, usa un texto breve indicando que
 falta esa información en vez de inventar datos.
 
+━━━ SI SE PIDIÓ "bpmn" (Diagrama de Proceso) ━━━
+`pasos_as_is` es el proceso ACTUAL (con el problema descrito en el
+Bloque 1) y `pasos_to_be` es el proceso PROPUESTO (con la solución del
+Bloque 2/3) — ambos como secuencia ordenada de pasos {actor, accion,
+tipo, usado_en_to_be}.
+- `tipo` es uno de: "inicio", "fin", "tarea", "decision".
+- `usado_en_to_be` (solo relevante dentro de `pasos_as_is`): marcá `false`
+  en un paso del AS-IS cuando ese paso desaparece por completo en el
+  rediseño TO-BE (ej. un paso manual/redundante que la solución elimina).
+  Dejalo en `true` (default) para los pasos del AS-IS que se mantienen o
+  se simplifican pero siguen existiendo. En `pasos_to_be` siempre va
+  `true` — ahí no aplica el concepto de "paso eliminado".
+
+━━━ SI SE PIDIÓ "bmc" (Business Model Canvas) ━━━
+La entrevista ya indaga la mayoría de estos bloques de forma explícita —
+usá ESA información real, no generalices si ya está en la conversación:
+- segmentos_clientes: a partir del Bloque 1 (problema/alcance) — quién se
+  ve afectado por el problema (qué departamentos, qué países).
+- propuesta_valor: a partir del Bloque 2 (objetivo medible) y Bloque 3
+  (beneficios) — qué cambia concretamente y qué se gana con la idea.
+- canales: a partir de lo indagado en el Bloque 3 sobre cómo llega la
+  solución a quien la usa.
+- relaciones_clientes: a partir de lo indagado en el Bloque 3 sobre cómo
+  se da soporte/comunicación a quien usa la idea.
+- recursos_clave: a partir de lo indagado en el Bloque 4 sobre qué se
+  necesita para construir/operar el entregable (personas, tecnología,
+  herramientas).
+- actividades_clave: a partir de lo indagado en el Bloque 4 sobre las
+  tareas principales de implementación.
+- socios_clave: a partir de lo indagado en el Bloque 1 sobre proveedores
+  externos/terceros. Si la persona indicó explícitamente que no hay
+  terceros involucrados, decilo así ("No se identificaron socios externos
+  — la idea es de ejecución interna"), no lo dejes en blanco ni inventes uno.
+- fuentes_ingreso: para ideas internas de mejora de proceso (el caso más
+  común acá) normalmente NO hay ingreso nuevo, sino ahorro/eficiencia —
+  redactalo en términos de ahorro de costos o tiempo (a partir del Bloque
+  3), no fuerces un modelo de ingresos que no aplica a una idea interna.
+- estructura_costos: redactalo a partir del RANGO DE PRESUPUESTO y el
+  PLAZO DE ESFUERZO ya capturados en el Bloque 1 — NO preguntes ni
+  inventes un desglose de costos más fino que ese, la política solo pide
+  ese nivel de detalle.
+
+━━━ SI SE PIDIÓ "raci" (Matriz de Responsabilidades) ━━━
+Para cada actividad en `actividades`, el campo `asignaciones` es un STRING
+con el formato exacto "Rol A: R; Rol B: A; Rol C: C" (rol, dos puntos,
+letra; punto y coma entre pares). NUNCA lo dejes vacío ni pongas solo
+"Pendiente" — es el error más común y hace que la tabla se genere sin
+ninguna columna de rol, inutilizable.
+- Los roles deben ser NOMBRES REALES derivados de la entrevista: el
+  departamento del autor y los departamentos impactados (Bloque 1), el
+  equipo o proveedor que construye el entregable (Bloque 4 y Socios Clave),
+  y quien usa o se beneficia de la idea (ej. "Supervisor de Operaciones",
+  "Equipo de TI", "Proveedor de telemática", "Finanzas") — no inventes
+  roles genéricos tipo "Rol 1" si la conversación ya deja claro quién hace qué.
+- Identificá entre 4 y 8 actividades concretas de implementación, a partir
+  de los ENTREGABLES y ACTIVIDADES CLAVE indagados en el Bloque 4.
+- Para cada actividad, incluí en `asignaciones` solo los roles que
+  realmente participan de ESA actividad (2 a 4 roles típicamente, no hace
+  falta repetir todos los roles en todas las actividades), cada uno con
+  exactamente una letra: R (Responsable — quien ejecuta), A (Aprueba —
+  quien autoriza, normalmente uno solo por actividad), C (Consultado — a
+  quien se le pide opinión antes de actuar), I (Informado — a quien se le
+  avisa del resultado). Ejemplo de un valor válido de `asignaciones`:
+  "Equipo de TI: R; Supervisor de Operaciones: A; Choferes: I".
+
 IDIOMA: Siempre en español.
 """.strip()
 
@@ -258,12 +524,18 @@ def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dic
     try:
         response = _client.messages.parse(
             model=settings.claude_model,
-            # 8192 (no 1024/4096 como generar_respuesta): esta llamada puede
-            # generar el contenido narrativo completo de hasta 6 documentos
-            # a la vez, muy por encima de lo que necesita una respuesta de
-            # chat — con un límite más bajo la respuesta se corta a mitad
-            # de generarse y produce JSON inválido ("EOF while parsing").
-            max_tokens=8192,
+            # 16000 (no 8192, y muy por encima de generar_respuesta): esta
+            # llamada genera el contenido narrativo completo de hasta 6
+            # documentos a la vez — con un límite más bajo la respuesta se
+            # corta a mitad de generarse y produce JSON inválido ("EOF while
+            # parsing"). Se subió de 8192 porque en Sonnet 5 el razonamiento
+            # adaptativo (activo al omitir `thinking`) consume parte del mismo
+            # presupuesto, así que el margen real era menor que el declarado.
+            #
+            # 16000 es el techo práctico sin streaming: por encima de ~16K el
+            # SDK arriesga timeout de HTTP y habría que pasar a
+            # _client.messages.stream() + get_final_message().
+            max_tokens=16000,
             system=(
                 f"Redacta el contenido para estos tipos de documento: {', '.join(tipos)}.\n\n"
                 f"{_CRITERIOS_DOCUMENTOS}"
@@ -287,7 +559,38 @@ def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dic
     for tipo in tipos:
         sub_modelo = getattr(parsed, tipo, None)
         resultado[tipo] = sub_modelo.model_dump() if sub_modelo else {}
+
+    if isinstance(parsed.raci, RaciContenido):
+        # generadores.py y plantillas_html.py esperan roles/leyenda como
+        # dict[str, str] (formato histórico) — se reconvierte acá desde el
+        # string "Rol: Letra; Rol: Letra" que sí soporta el Structured
+        # Output sin errores (ver docstring de ActividadRaci/LeyendaRaci).
+        resultado["raci"]["actividades"] = [
+            {
+                "actividad": actividad.actividad,
+                "roles": _parsear_asignaciones_raci(actividad.asignaciones),
+            }
+            for actividad in parsed.raci.actividades
+        ]
+        resultado["raci"]["leyenda"] = dict(_LEYENDA_RACI)
+
     return resultado
+
+
+def _parsear_asignaciones_raci(asignaciones: str) -> dict[str, str]:
+    """Convierte "Rol A: R; Rol B: A" -> {"Rol A": "R", "Rol B": "A"}.
+    Ver docstring de ActividadRaci para por qué este campo es un string
+    y no un dict[str,str] directo."""
+    roles: dict[str, str] = {}
+    for par in asignaciones.split(";"):
+        if ":" not in par:
+            continue
+        rol, _, letra = par.partition(":")
+        rol = rol.strip()
+        letra = letra.strip().upper()
+        if rol and letra:
+            roles[rol] = letra
+    return roles
 
 
 class ClasificacionResultado(BaseModel):
@@ -345,7 +648,10 @@ def clasificar_idea(historial: list[dict], criterio_texto: str) -> dict | None:
     try:
         response = _client.messages.parse(
             model=settings.claude_model,
-            max_tokens=1024,
+            # 4096, no 1024 — misma razón que generar_respuesta: en Sonnet 5
+            # el razonamiento adaptativo está activo al omitir `thinking` y
+            # comparte presupuesto con la respuesta.
+            max_tokens=4096,
             system=_CRITERIOS_CLASIFICACION_BASE,
             messages=mensajes_anthropic,
             output_format=ClasificacionResultado,
@@ -447,7 +753,8 @@ def asignar_revisor_ia(
     try:
         response = _client.messages.parse(
             model=settings.claude_model,
-            max_tokens=1024,
+            # 4096, no 1024 — ver generar_respuesta.
+            max_tokens=4096,
             system=_CRITERIOS_ASIGNACION_REVISOR,
             messages=mensajes_anthropic,
             output_format=AsignacionRevisorResultado,
@@ -522,7 +829,8 @@ def analizar_riesgo_idea(historial: list[dict]) -> dict | None:
     try:
         response = _client.messages.parse(
             model=settings.claude_model,
-            max_tokens=1024,
+            # 4096, no 1024 — ver generar_respuesta.
+            max_tokens=4096,
             system=_CRITERIOS_ANALISIS_RIESGO,
             messages=mensajes_anthropic,
             output_format=AnalisisRiesgoResultado,
@@ -565,7 +873,10 @@ def responder_pregunta_idea(historial: list[dict], pregunta: str) -> str:
     try:
         response = _client.messages.create(
             model=settings.claude_model,
-            max_tokens=1024,
+            # 4096, no 1024 — ver generar_respuesta. Acá además la respuesta
+            # es texto libre que se muestra tal cual en el mini-chat, así que
+            # un corte por presupuesto se ve como una frase a medias.
+            max_tokens=4096,
             system=(
                 "Eres un asistente que ayuda a quien revisa o aprueba una idea a "
                 "entenderla mejor, respondiendo preguntas puntuales sobre su contenido "
@@ -591,22 +902,64 @@ def responder_pregunta_idea(historial: list[dict], pregunta: str) -> str:
 TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3
 
 
+_ORDEN_BLOQUES_STUB = ["problema_alcance", "objetivo_medible", "beneficios", "entregables", "riesgos"]
+
+
+def _progreso_bloques_stub(turnos_usuario: int) -> dict:
+    """Simula avance incremental: 1 bloque completado por turno de usuario,
+    proporcional a TURNOS_USUARIO_PARA_COMPLETAR_STUB, para poder probar el
+    checklist en frontend sin depender de la API real."""
+    completados = int(len(_ORDEN_BLOQUES_STUB) * min(turnos_usuario, TURNOS_USUARIO_PARA_COMPLETAR_STUB) / TURNOS_USUARIO_PARA_COMPLETAR_STUB)
+    progreso = {}
+    for i, clave in enumerate(_ORDEN_BLOQUES_STUB):
+        if i < completados:
+            progreso[clave] = EstadoBloque.completado.value
+        elif i == completados and turnos_usuario > 0:
+            progreso[clave] = EstadoBloque.en_progreso.value
+        else:
+            progreso[clave] = EstadoBloque.pendiente.value
+    return progreso
+
+
 def _respuesta_stub(mensajes: list[dict], system_prompt: str) -> dict:
     turnos_usuario = sum(1 for m in mensajes if m.get("role") == "usuario")
-    entrevista_completa = turnos_usuario >= TURNOS_USUARIO_PARA_COMPLETAR_STUB
+    bloques_completos = turnos_usuario >= TURNOS_USUARIO_PARA_COMPLETAR_STUB
 
-    if entrevista_completa:
-        mensaje = "[STUB] Entrevista simulada completa — la idea tiene suficiente detalle."
+    # entrevista_completa SIEMPRE False — ver REGLA DE CIERRE en
+    # _CRITERIOS_ENTREVISTA: el envío ya no lo dispara la IA, lo dispara
+    # el botón "Enviar idea" (POST /ideas/{id}/enviar) una vez que
+    # progreso_bloques muestra los 5 bloques "completado".
+    # Se alternan turnos con y sin `options` para poder probar en el
+    # navegador tanto los botones de respuesta rápida como el campo de
+    # texto libre, sin depender de la API real.
+    opciones = None
+
+    if bloques_completos:
+        mensaje = (
+            "[STUB] ¡Listo, ya tengo todo lo que necesitaba! ¿Querés agregar algo más, "
+            "o lo mandamos ya con el botón 'Enviar idea'?"
+        )
+        progreso_bloques = dict(_PROGRESO_BLOQUES_COMPLETO)
     else:
         mensaje = (
-            "[STUB] Respuesta simulada — dame un ejemplo más concreto "
+            "[STUB] Respuesta simulada — contame un poquito más "
             f"(turno {turnos_usuario} de {TURNOS_USUARIO_PARA_COMPLETAR_STUB})."
         )
+        progreso_bloques = _progreso_bloques_stub(turnos_usuario)
+        if turnos_usuario % 2 == 1:
+            opciones = [
+                "Nada, se hace en casa",
+                "Hasta $10,000",
+                "Entre $10,000 y $20,000",
+                "Entre $20,000 y $30,000",
+                "Más de $30,000",
+            ]
 
     return {
         "message": mensaje,
-        "entrevista_completa": entrevista_completa,
-        "options": None,
+        "entrevista_completa": False,
+        "options": opciones,
+        "progreso_bloques": progreso_bloques,
         "raw": None,
     }
 

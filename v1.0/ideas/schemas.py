@@ -64,6 +64,18 @@ class RespuestaEntrevistaOut(BaseModel):
     idea: IdeaOut
     mensaje_usuario: MensajeEntrevistaOut
     mensaje_asistente: MensajeEntrevistaOut
+    # Respuestas sugeridas para el turno actual (ver
+    # core/claude_client.py:RespuestaEntrevista.options) — el frontend las
+    # pinta como botones para que la persona no tenga que escribir montos,
+    # plazos o países a mano.
+    #
+    # EFÍMERO a propósito: no se persiste en MensajeEntrevista, así que si
+    # la persona recarga la página los botones del último turno no vuelven
+    # (el campo de texto sigue funcionando igual, no se pierde nada del
+    # avance). Persistirlo exigiría una columna nueva + migración; se
+    # decidió no pagar eso todavía. Ver también GET /ideas/{id}, que por
+    # eso mismo no devuelve `opciones`.
+    opciones: list[str] | None = None
 
 
 class EventoLineaTiempoOut(BaseModel):

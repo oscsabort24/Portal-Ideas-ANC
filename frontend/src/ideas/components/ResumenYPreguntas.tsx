@@ -23,7 +23,13 @@ const COLOR_CATEGORIA_RIESGO: Record<string, { bg: string; color: string }> = {
   critico: { bg: 'var(--error-bg)', color: 'var(--error)' },
 }
 
-export default function ResumenYPreguntas({ ideaId }: { ideaId: number }) {
+export default function ResumenYPreguntas({
+  ideaId,
+  origen,
+}: {
+  ideaId: number
+  origen: 'revision' | 'comite'
+}) {
   const [resumen, setResumen] = useState<string | null>(null)
   const [categoriaRiesgo, setCategoriaRiesgo] = useState<string | null>(null)
   const [resumenNoDisponible, setResumenNoDisponible] = useState<string | null>(null)
@@ -66,7 +72,7 @@ export default function ResumenYPreguntas({ ideaId }: { ideaId: number }) {
     setEnviando(true)
     setError(null)
     try {
-      const { respuesta } = await preguntarSobreIdea(ideaId, pregunta)
+      const { respuesta } = await preguntarSobreIdea(ideaId, pregunta, origen)
       setHistorial((prev) => [...prev, { pregunta, respuesta }])
       setPreguntaActual('')
     } catch (err) {

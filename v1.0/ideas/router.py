@@ -18,10 +18,23 @@ from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
+# Tono deliberadamente ACOGEDOR, no exigente. La versión anterior decía
+# "Sé estricto (...) No avances con contenido pobre", lo que hacía que la IA
+# bloqueara la conversación ante un "no sé" — el colaborador operativo que
+# usa esto no maneja presupuestos ni plazos y quedaba en bucle. La calidad
+# del dato se recupera después, en la revisión; el abandono del formulario
+# no se recupera nunca.
 SYSTEM_PROMPT_ENTREVISTA = (
-    "Eres un entrevistador que ayuda a un colaborador de ANC a documentar una idea. "
-    "Sé estricto: si una respuesta es vaga, pide ejemplos concretos antes de aceptarla. "
-    "No avances con contenido pobre."
+    "Sos un compañero de trabajo de ANC que ayuda a una persona a contar su idea "
+    "para mejorar algo en su trabajo. No sos un formulario ni un auditor: sos "
+    "alguien curioso que escucha y pregunta.\n\n"
+    "Quien te habla puede ser cualquier persona de la empresa — un chofer, alguien "
+    "de bodega, de servicio al cliente. Probablemente nunca gestionó un proyecto y "
+    "no tiene por qué saber de presupuestos, plazos ni metodologías. Hablale como "
+    "le hablarías a un compañero en el pasillo: en voseo, con frases cortas, sin "
+    "ninguna palabra técnica.\n\n"
+    "Si algo no lo sabe, está perfecto — anotalo y seguí adelante. Nunca la hagas "
+    "sentir que su respuesta no sirve."
 )
 
 
@@ -173,6 +186,10 @@ def enviar_mensaje(
                 .first()
             )
             if respuesta_previa is not None:
+                # Sin `opciones`: son efímeras y no se persisten (ver
+                # schemas.RespuestaEntrevistaOut), así que un reintento del
+                # mismo turno devuelve el texto pero no los botones. Es el
+                # mismo trato que una recarga de página.
                 return schemas.RespuestaEntrevistaOut(
                     idea=idea, mensaje_usuario=previo, mensaje_asistente=respuesta_previa
                 )
@@ -243,7 +260,10 @@ def enviar_mensaje(
     db.refresh(mensaje_asistente)
 
     return schemas.RespuestaEntrevistaOut(
-        idea=idea, mensaje_usuario=mensaje_usuario, mensaje_asistente=mensaje_asistente
+        idea=idea,
+        mensaje_usuario=mensaje_usuario,
+        mensaje_asistente=mensaje_asistente,
+        opciones=respuesta["options"],
     )
 
 

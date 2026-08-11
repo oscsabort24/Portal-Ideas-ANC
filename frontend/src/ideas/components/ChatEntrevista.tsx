@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import { enviarIdea, enviarMensaje, obtenerIdea } from '../api'
-import type { IdeaDetalle, MensajeEntrevista } from '../types'
+import type { IdeaDetalle, MensajeEntrevista, ProgresoBloques } from '../types'
 import BurbujaMensaje from './BurbujaMensaje'
 import ChecklistEntrevista from './ChecklistEntrevista'
 import LineaTiempo from './LineaTiempo'
@@ -26,9 +26,35 @@ function esAbortError(err: unknown): boolean {
 // real todavía. En cuanto el usuario envía el primero, deja de renderizarse
 // (ver `mensajes.length === 0` donde se usa) y la conversación real empieza.
 const MENSAJE_BIENVENIDA =
-  '¡Hola! Soy el asistente que te va a ayudar a documentar tu idea, simplemente conversando. ' +
-  'Te voy a hacer algunas preguntas para entender bien el problema, qué buscás lograr, los beneficios, ' +
-  'qué se necesitaría para implementarlo y los riesgos. Contame, ¿cuál es la idea?'
+  '¡Hola! Vamos a conversar un rato sobre tu idea, nada más. Te voy a hacer preguntas cortas, ' +
+  'de una en una, y si algo no lo sabés no hay problema — me decís y seguimos. ' +
+  'Contame, ¿qué es lo que te gustaría mejorar en tu trabajo?'
+
+// Placeholder que cambia según el tema que la conversación está tocando: da
+// una pista concreta de qué tipo de respuesta se espera, en vez del genérico
+// "Escribe tu respuesta...". Las claves son las de ProgresoBloques.
+const PLACEHOLDER_POR_BLOQUE: Record<keyof ProgresoBloques, string> = {
+  problema_alcance: 'Ej. Cada vez que llega una factura tengo que copiarla a mano en el sistema...',
+  objetivo_medible: 'Ej. Me ahorraría como dos horas todos los días...',
+  beneficios: 'Ej. Hoy me lleva media mañana; con esto sería cuestión de minutos...',
+  entregables: 'Ej. Me gustaría que me llegara una alerta al celular...',
+  riesgos: 'Ej. Que la gente no lo use, o que el sistema se caiga...',
+}
+
+const ORDEN_BLOQUES: (keyof ProgresoBloques)[] = [
+  'problema_alcance',
+  'objetivo_medible',
+  'beneficios',
+  'entregables',
+  'riesgos',
+]
+
+// El primer bloque que no está completado — es el que la IA está indagando
+// ahora mismo. Si ya están todos, no hay pista que dar.
+function bloqueEnCurso(progreso: ProgresoBloques | null): keyof ProgresoBloques | null {
+  if (!progreso) return 'problema_alcance'
+  return ORDEN_BLOQUES.find((clave) => progreso[clave] !== 'completado') ?? null
+}
 
 export default function ChatEntrevista() {
   const { id } = useParams<{ id: string }>()
@@ -39,6 +65,10 @@ export default function ChatEntrevista() {
   const [contenido, setContenido] = useState(() => localStorage.getItem(claveBorrador(ideaId)) ?? '')
   const [enviando, setEnviando] = useState(false)
   const [enviandoIdea, setEnviandoIdea] = useState(false)
+  // Respuestas sugeridas del último turno. Efímeras a propósito (no vienen
+  // en obtenerIdea, ver ideas/schemas.py) — tras recargar la página quedan
+  // solo el texto de la pregunta y el campo libre, que es suficiente.
+  const [opciones, setOpciones] = useState<string[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const finMensajesRef = useRef<HTMLDivElement | null>(null)
@@ -88,6 +118,9 @@ export default function ChatEntrevista() {
   // respuesta que nunca va a aplicar a la idea actual.
   useEffect(() => {
     setEnviando(false)
+    // Las opciones sugeridas son del turno de OTRA idea — mostrarlas acá
+    // ofrecería respuestas a una pregunta que nunca se hizo.
+    setOpciones(null)
     // La clave de idempotencia es de un mensaje concreto de ESTA idea —
     // arrastrarla a otra no tendría sentido (la unicidad es por idea_id).
     idempotencyKeyRef.current = null
@@ -108,8 +141,11 @@ export default function ChatEntrevista() {
     el.style.height = `${el.scrollHeight}px`
   }, [contenido])
 
-  async function handleEnviar() {
-    const texto = contenido.trim()
+  // `textoDirecto` lo pasa un botón de respuesta rápida: se manda tal cual
+  // sin pasar por el textarea, para que tocar una opción sea un solo clic y
+  // no pise un borrador que la persona ya venía escribiendo.
+  async function handleEnviar(textoDirecto?: string) {
+    const texto = (textoDirecto ?? contenido).trim()
     if (!texto || enviando || idea?.estado === 'enviada') {
       if (enviando) {
         // Rastro diagnosticable en consola: si esto aparece sin que el
@@ -131,6 +167,9 @@ export default function ChatEntrevista() {
 
     setEnviando(true)
     setError(null)
+    // Las opciones eran del turno anterior: en cuanto se manda una respuesta
+    // dejan de aplicar, aunque la nueva pregunta todavía no haya llegado.
+    setOpciones(null)
     try {
       const respuesta = await enviarMensaje(ideaId, texto, idempotencyKeyRef.current, controller.signal)
       setMensajes((prev) => [...prev, respuesta.mensaje_usuario, respuesta.mensaje_asistente])
@@ -144,8 +183,14 @@ export default function ChatEntrevista() {
             }
           : prev,
       )
-      setContenido('')
-      localStorage.removeItem(claveBorrador(ideaId))
+      setOpciones(respuesta.opciones)
+      // Solo se limpia el textarea si fue lo que se mandó — si la persona
+      // tocó un botón teniendo algo a medio escribir, ese borrador es suyo
+      // y no hay razón para borrárselo.
+      if (textoDirecto === undefined) {
+        setContenido('')
+        localStorage.removeItem(claveBorrador(ideaId))
+      }
       idempotencyKeyRef.current = null
     } catch (err) {
       if (esAbortError(err)) {
@@ -188,6 +233,13 @@ export default function ChatEntrevista() {
   const bloquesCompletos =
     !!idea.progreso_bloques && Object.values(idea.progreso_bloques).every((estado) => estado === 'completado')
 
+  const claveBloqueEnCurso = bloqueEnCurso(idea.progreso_bloques)
+  const placeholder = entrevistaTerminada
+    ? 'Esta idea ya fue enviada'
+    : claveBloqueEnCurso
+      ? PLACEHOLDER_POR_BLOQUE[claveBloqueEnCurso]
+      : 'Escribí lo que quieras agregar...'
+
   return (
     <>
     <div className="chat-entrevista-layout">
@@ -221,7 +273,7 @@ export default function ChatEntrevista() {
 
         {!entrevistaTerminada && bloquesCompletos && (
           <div className="banner-lista-para-enviar">
-            <span>Ya tenés los 5 bloques completos. Podés seguir agregando contexto, o enviar la idea cuando quieras.</span>
+            <span>Ya está todo listo. Podés seguir agregando lo que quieras, o mandarla cuando te parezca.</span>
             <button className="btn-primary" onClick={handleEnviarIdea} disabled={enviandoIdea}>
               {enviandoIdea ? 'Enviando...' : 'Enviar idea'}
             </button>
@@ -231,12 +283,26 @@ export default function ChatEntrevista() {
         {error && <p style={{ color: 'var(--error)', fontSize: 13, padding: '0 20px' }}>{error}</p>}
 
         <div className="input-area">
+          {!entrevistaTerminada && !enviando && opciones && opciones.length > 0 && (
+            <div className="opciones-rapidas" role="group" aria-label="Respuestas sugeridas">
+              {opciones.map((opcion) => (
+                <button
+                  key={opcion}
+                  type="button"
+                  className="opcion-rapida"
+                  onClick={() => handleEnviar(opcion)}
+                >
+                  {opcion}
+                </button>
+              ))}
+            </div>
+          )}
           <div className={`input-wrapper ${entrevistaTerminada ? 'disabled' : ''}`}>
             <textarea
               id="userInput"
               ref={textareaRef}
               rows={1}
-              placeholder={entrevistaTerminada ? 'Esta idea ya fue enviada' : 'Escribe tu respuesta...'}
+              placeholder={placeholder}
               value={contenido}
               onChange={(e) => setContenido(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -244,7 +310,9 @@ export default function ChatEntrevista() {
             />
             <button
               className="btn-send"
-              onClick={handleEnviar}
+              // Envuelto en una lambda a propósito: pasar `handleEnviar`
+              // directo le entregaría el MouseEvent como `textoDirecto`.
+              onClick={() => handleEnviar()}
               disabled={entrevistaTerminada || enviando || !contenido.trim()}
               aria-label="Enviar mensaje"
             >

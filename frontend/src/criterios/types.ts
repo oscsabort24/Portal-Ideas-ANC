@@ -16,11 +16,21 @@ export interface DocumentoCriterio {
   nombre_archivo: string
   version: number
   activo: boolean
+  contenido: string | null
+  descripcion: string | null
   subido_por: UsuarioResumen
   subido_en: string
+  actualizado_por: UsuarioResumen | null
+  actualizado_en: string | null
 }
 
 export interface PinDefinir {
   pin_actual?: string
   pin_nuevo: string
+}
+
+export interface DocumentoCriterioEditar {
+  contenido?: string
+  descripcion?: string
+  pin: string
 }

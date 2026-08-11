@@ -96,9 +96,14 @@ def construir_linea_tiempo(db: Session, idea: Idea) -> list[dict]:
     clasificacion = db.query(ClasificacionIdea).filter_by(idea_id=idea.id).first()
     if clasificacion and clasificacion.clasificacion and clasificacion.fecha_clasificacion:
         etiqueta = "Innovación" if clasificacion.clasificacion == TipoCAB.innovacion else "Transformación Digital"
+        # clasificado_por_id=None es el caso NORMAL (clasificación automática
+        # por IA, ver clasificacion/service.py) — no un dato faltante. Solo
+        # queda con un usuario real cuando un admin la reclasifica a mano
+        # (clasificacion/router.py:61).
+        clasificador = clasificacion.clasificado_por.nombre if clasificacion.clasificado_por else "IA"
         eventos.append({
             "tipo": "clasificacion",
-            "descripcion": f"Clasificada como {etiqueta} (por {clasificacion.clasificado_por.nombre})",
+            "descripcion": f"Clasificada como {etiqueta} (por {clasificador})",
             "fecha": clasificacion.fecha_clasificacion,
             "color": "info",
         })

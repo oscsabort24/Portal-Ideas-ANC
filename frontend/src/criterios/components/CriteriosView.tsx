@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { obtenerDocumentoActivo, obtenerEstadoPin, obtenerHistorial } from '../api'
 import { ETIQUETA_TIPO_CRITERIO, type DocumentoCriterio, type TipoCriterio } from '../types'
 import DocumentoActivo from './DocumentoActivo'
+import EditorCriterio from './EditorCriterio'
 import FormularioPin from './FormularioPin'
 import FormularioSubirDocumento from './FormularioSubirDocumento'
 import HistorialVersiones from './HistorialVersiones'
@@ -77,9 +78,16 @@ function SeccionCriterio({ tipo }: { tipo: TipoCriterio }) {
       <h2 className="cab-grupo-titulo">Documento activo</h2>
       <DocumentoActivo tipo={tipo} documento={documento} />
 
+      {tienePin && documento && (
+        <>
+          <h2 className="cab-grupo-titulo">Editar contenido</h2>
+          <EditorCriterio documento={documento} onGuardado={handleDocumentoSubido} />
+        </>
+      )}
+
       {tienePin && (
         <>
-          <h2 className="cab-grupo-titulo">Subir nueva versión</h2>
+          <h2 className="cab-grupo-titulo">Reemplazar documento completo</h2>
           <FormularioSubirDocumento tipo={tipo} onSubido={handleDocumentoSubido} />
         </>
       )}
