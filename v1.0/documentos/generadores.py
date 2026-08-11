@@ -31,7 +31,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches, RGBColor
+from docx.shared import Inches, Pt, RGBColor
 
 _AZUL = RGBColor(0x2E, 0x5F, 0xAA)
 _AZUL_CLARO_HEX = "EAF1FB"
@@ -45,8 +45,8 @@ _BLANCO = RGBColor(0xFF, 0xFF, 0xFF)
 
 _RACI_COLORES = {
     "R": ("E8F4FD", RGBColor(0x2E, 0x5F, 0xAA)),
-    "A": ("FDF2EA", RGBColor(0xE8, 0x76, 0x2C)),
-    "C": (_VERDE_CLARO_HEX, _VERDE),
+    "A": (_VERDE_CLARO_HEX, _VERDE),
+    "C": (_NARANJA_CLARO_HEX, _NARANJA_OSCURO),
     "I": ("F0F0EF", RGBColor(0x6B, 0x72, 0x80)),
 }
 
@@ -229,13 +229,25 @@ def _generar_diagrama_bpmn(pasos: list[dict], ruta_base_sin_extension: str) -> s
     _asegurar_graphviz_disponible()
 
     grafo = graphviz.Digraph(format="png")
-    grafo.attr(rankdir="LR")
+    # rankdir="TB" (vertical): con "LR" el diagrama crecía casi solo en
+    # ancho (una tira horizontal aplastada e ilegible al insertarse a un
+    # ancho fijo de 6.5in en el .docx) — confirmado generando el PNG real
+    # con ambos valores antes de aplicar este cambio.
+    grafo.attr(rankdir="TB")
+    grafo.attr("node", fontname="Helvetica", fontsize="11")
+    grafo.attr("edge", color=f"#{_AZUL_HEX}")
 
     for i, paso in enumerate(pasos):
         actor = paso.get("actor") or "—"
         accion = paso.get("accion") or "Pendiente de definir"
         forma = _FORMA_POR_TIPO.get(paso.get("tipo"), "box")
-        grafo.node(f"n{i}", f"{actor}: {accion}", shape=forma)
+        if paso.get("usado_en_to_be", True):
+            estilo = {"style": "filled", "fillcolor": f"#{_AZUL_CLARO_HEX}", "color": f"#{_AZUL_HEX}", "fontcolor": "#22282E"}
+        else:
+            # Paso del AS-IS que el rediseño TO-BE elimina: gris apagado y
+            # borde punteado para distinguirlo de un paso normal.
+            estilo = {"style": "filled,dashed", "fillcolor": "#F0F0EF", "color": "#6B7280", "fontcolor": "#6B7280"}
+        grafo.node(f"n{i}", f"{actor}: {accion}", shape=forma, **estilo)
 
     for i in range(len(pasos) - 1):
         grafo.edge(f"n{i}", f"n{i + 1}")
@@ -364,24 +376,51 @@ def generar_raci_docx(datos: dict, ruta_salida: str) -> None:
     doc.save(ruta_salida)
 
 
+def _celda_bmc(cell, *bloques: tuple[str, str | None]) -> None:
+    """Escribe 1 o 2 bloques (título en azul + contenido) dentro de la
+    MISMA celda de tabla, apilados uno debajo del otro — así se logra el
+    layout "2 bloques en la misma columna" (Actividades+Recursos,
+    Relaciones+Canales) sin necesitar sub-tablas anidadas."""
+    primer_parrafo = cell.paragraphs[0]
+    for indice, (etiqueta, texto) in enumerate(bloques):
+        parrafo_titulo = primer_parrafo if indice == 0 else cell.add_paragraph()
+        run_titulo = parrafo_titulo.add_run(etiqueta.upper())
+        run_titulo.bold = True
+        run_titulo.font.color.rgb = _AZUL
+        run_titulo.font.size = Pt(9)
+
+        parrafo_contenido = cell.add_paragraph()
+        parrafo_contenido.add_run(texto or "Pendiente de definir")
+
+        if indice < len(bloques) - 1:
+            cell.add_paragraph()  # separador visual entre los 2 bloques apilados
+
+
 def generar_bmc_docx(datos: dict, ruta_salida: str) -> None:
-    """datos: titulo + los 9 bloques del Business Model Canvas (texto libre c/u)."""
+    """datos: titulo + los 9 bloques del Business Model Canvas (texto libre
+    c/u). Layout en 2 tablas (5 columnas arriba, 2 columnas anchas abajo)
+    replicando el grid del canvas — Word no soporta CSS Grid, así que
+    "Actividades+Recursos" y "Relaciones+Canales" se apilan como párrafos
+    dentro de la misma celda (ver _celda_bmc) en vez de ser 2 filas reales."""
     doc = Document()
     _agregar_encabezado(doc, datos.get("titulo") or "Business Model Canvas", "BMC")
 
-    bloques = [
-        ("Socios Clave", "socios_clave"),
-        ("Actividades Clave", "actividades_clave"),
-        ("Recursos Clave", "recursos_clave"),
-        ("Propuesta de Valor", "propuesta_valor"),
-        ("Relaciones con Clientes", "relaciones_clientes"),
-        ("Canales", "canales"),
-        ("Segmentos de Clientes", "segmentos_clientes"),
-        ("Estructura de Costos", "estructura_costos"),
-        ("Fuentes de Ingreso", "fuentes_ingreso"),
-    ]
-    for etiqueta, clave in bloques:
-        _seccion(doc, etiqueta, datos.get(clave))
+    tabla_arriba = doc.add_table(rows=1, cols=5)
+    tabla_arriba.style = "Table Grid"
+    celdas = tabla_arriba.rows[0].cells
+    _celda_bmc(celdas[0], ("Socios Clave", datos.get("socios_clave")))
+    _celda_bmc(celdas[1], ("Actividades Clave", datos.get("actividades_clave")), ("Recursos Clave", datos.get("recursos_clave")))
+    _celda_bmc(celdas[2], ("Propuesta de Valor", datos.get("propuesta_valor")))
+    _celda_bmc(celdas[3], ("Relaciones con Clientes", datos.get("relaciones_clientes")), ("Canales", datos.get("canales")))
+    _celda_bmc(celdas[4], ("Segmentos de Clientes", datos.get("segmentos_clientes")))
+
+    doc.add_paragraph()
+
+    tabla_abajo = doc.add_table(rows=1, cols=2)
+    tabla_abajo.style = "Table Grid"
+    celdas_abajo = tabla_abajo.rows[0].cells
+    _celda_bmc(celdas_abajo[0], ("Estructura de Costos", datos.get("estructura_costos")))
+    _celda_bmc(celdas_abajo[1], ("Fuentes de Ingreso", datos.get("fuentes_ingreso")))
 
     doc.save(ruta_salida)
 

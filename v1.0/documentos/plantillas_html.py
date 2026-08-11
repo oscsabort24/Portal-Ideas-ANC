@@ -147,6 +147,23 @@ _CSS_BASE = """
     margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--border-light);
     font-size: 11px; color: var(--text-muted); text-align: center; letter-spacing: .4px;
   }
+  .bmc-canvas {
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 4px;
+  }
+  .bmc-row { display: grid; }
+  .bmc-row-top { grid-template-columns: repeat(5, 1fr); }
+  .bmc-row-bottom { grid-template-columns: repeat(2, 1fr); border-top: 1px solid var(--border); }
+  .bmc-cell, .bmc-cell-stack { padding: 14px; border-right: 1px solid var(--border-light); }
+  .bmc-row-top .bmc-cell:last-child, .bmc-row-top .bmc-cell-stack:last-child { border-right: none; }
+  .bmc-row-bottom .bmc-cell:last-child { border-right: none; }
+  .bmc-cell-stack { display: flex; flex-direction: column; padding: 0; }
+  .bmc-subcell { padding: 14px; flex: 1; }
+  .bmc-subcell + .bmc-subcell { border-top: 1px solid var(--border-light); }
+  .bmc-title {
+    font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--primary); margin-bottom: 6px;
+  }
+  .bmc-content { font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; }
 """
 
 _DOC_HEADER = """
@@ -322,8 +339,8 @@ ONEPAGER_HTML = _envolver(
 
 _RACI_COLORES = {
     "R": ("#e8f4fd", "#2e5faa"),
-    "A": ("#FDF2EA", "#E8762C"),
-    "C": ("#E8F5ED", "#00713d"),
+    "A": ("#E8F5ED", "#00713d"),
+    "C": ("#FEF3C7", "#B45309"),
     "I": ("#F0F0EF", "#6B7280"),
 }
 
@@ -392,22 +409,52 @@ BMC_HTML = _envolver(
     "Business Model Canvas",
     "BMC",
     """
-  {% for etiqueta, clave in [
-      ("Socios Clave", "socios_clave"),
-      ("Actividades Clave", "actividades_clave"),
-      ("Recursos Clave", "recursos_clave"),
-      ("Propuesta de Valor", "propuesta_valor"),
-      ("Relaciones con Clientes", "relaciones_clientes"),
-      ("Canales", "canales"),
-      ("Segmentos de Clientes", "segmentos_clientes"),
-      ("Estructura de Costos", "estructura_costos"),
-      ("Fuentes de Ingreso", "fuentes_ingreso"),
-  ] %}
-  <div class="charter-section">
-    <div class="section-title">{{ etiqueta }}</div>
-    <div class="section-content">{{ bloques.get(clave) or "Pendiente de definir" }}</div>
+  <div class="bmc-canvas">
+    <div class="bmc-row bmc-row-top">
+      <div class="bmc-cell">
+        <div class="bmc-title">Socios Clave</div>
+        <div class="bmc-content">{{ bloques.get("socios_clave") or "Pendiente de definir" }}</div>
+      </div>
+      <div class="bmc-cell-stack">
+        <div class="bmc-subcell">
+          <div class="bmc-title">Actividades Clave</div>
+          <div class="bmc-content">{{ bloques.get("actividades_clave") or "Pendiente de definir" }}</div>
+        </div>
+        <div class="bmc-subcell">
+          <div class="bmc-title">Recursos Clave</div>
+          <div class="bmc-content">{{ bloques.get("recursos_clave") or "Pendiente de definir" }}</div>
+        </div>
+      </div>
+      <div class="bmc-cell">
+        <div class="bmc-title">Propuesta de Valor</div>
+        <div class="bmc-content">{{ bloques.get("propuesta_valor") or "Pendiente de definir" }}</div>
+      </div>
+      <div class="bmc-cell-stack">
+        <div class="bmc-subcell">
+          <div class="bmc-title">Relaciones con Clientes</div>
+          <div class="bmc-content">{{ bloques.get("relaciones_clientes") or "Pendiente de definir" }}</div>
+        </div>
+        <div class="bmc-subcell">
+          <div class="bmc-title">Canales</div>
+          <div class="bmc-content">{{ bloques.get("canales") or "Pendiente de definir" }}</div>
+        </div>
+      </div>
+      <div class="bmc-cell">
+        <div class="bmc-title">Segmentos de Clientes</div>
+        <div class="bmc-content">{{ bloques.get("segmentos_clientes") or "Pendiente de definir" }}</div>
+      </div>
+    </div>
+    <div class="bmc-row bmc-row-bottom">
+      <div class="bmc-cell">
+        <div class="bmc-title">Estructura de Costos</div>
+        <div class="bmc-content">{{ bloques.get("estructura_costos") or "Pendiente de definir" }}</div>
+      </div>
+      <div class="bmc-cell">
+        <div class="bmc-title">Fuentes de Ingreso</div>
+        <div class="bmc-content">{{ bloques.get("fuentes_ingreso") or "Pendiente de definir" }}</div>
+      </div>
+    </div>
   </div>
-  {% endfor %}
 """,
 )
 
@@ -478,7 +525,10 @@ def _diagrama_bpmn_base64(pasos: list[dict]) -> str | None:
     _asegurar_graphviz_disponible()
 
     grafo = graphviz.Digraph(format="png")
-    grafo.attr(rankdir="LR", bgcolor="transparent")
+    # rankdir="TB" (vertical): con "LR" el diagrama crecía casi solo en
+    # ancho (tira horizontal aplastada e ilegible) — mismo fix aplicado en
+    # generadores.py:_generar_diagrama_bpmn, confirmado con el PNG real.
+    grafo.attr(rankdir="TB", bgcolor="transparent")
     grafo.attr("node", fontname="Helvetica", fontsize="11")
     grafo.attr("edge", color="#2e5faa")
 
@@ -486,10 +536,13 @@ def _diagrama_bpmn_base64(pasos: list[dict]) -> str | None:
         actor = paso.get("actor") or "—"
         accion = paso.get("accion") or "Pendiente de definir"
         forma = _FORMA_POR_TIPO.get(paso.get("tipo"), "box")
-        grafo.node(
-            f"n{i}", f"{actor}\n{accion}", shape=forma,
-            style="filled", fillcolor="#eaf1fb", color="#2e5faa", fontcolor="#22282E",
-        )
+        if paso.get("usado_en_to_be", True):
+            estilo = {"style": "filled", "fillcolor": "#eaf1fb", "color": "#2e5faa", "fontcolor": "#22282E"}
+        else:
+            # Paso del AS-IS que el rediseño TO-BE elimina: gris apagado y
+            # borde punteado para distinguirlo de un paso normal.
+            estilo = {"style": "filled,dashed", "fillcolor": "#F0F0EF", "color": "#6B7280", "fontcolor": "#6B7280"}
+        grafo.node(f"n{i}", f"{actor}\n{accion}", shape=forma, **estilo)
 
     for i in range(len(pasos) - 1):
         grafo.edge(f"n{i}", f"n{i + 1}")
