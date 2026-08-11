@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { FiDownload, FiEye, FiFileText } from 'react-icons/fi'
-import { descargarDocumento, descargarZip, listarDocumentos, obtenerPendientes } from '../api'
+import { FiAlertTriangle, FiDownload, FiEye, FiFileText, FiRefreshCw } from 'react-icons/fi'
+import { descargarDocumento, descargarZip, generarDocumentos, listarDocumentos, obtenerPendientes } from '../api'
 import { ETIQUETA_TIPO_DOCUMENTO, ORDEN_TIPOS_DOCUMENTO, type DocumentoGenerado, type TipoDocumento } from '../types'
 import SelectorGenerarDocumentos from './SelectorGenerarDocumentos'
 import VistaPreviaDocumento from './VistaPreviaDocumento'
@@ -8,10 +8,13 @@ import VistaPreviaDocumento from './VistaPreviaDocumento'
 export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
   const [documentos, setDocumentos] = useState<DocumentoGenerado[]>([])
   const [pendientes, setPendientes] = useState<TipoDocumento[]>([])
+  const [puedeGenerar, setPuedeGenerar] = useState(false)
+  const [documentosDesactualizados, setDocumentosDesactualizados] = useState(false)
   const [cargando, setCargando] = useState(true)
   const [seleccionados, setSeleccionados] = useState<Set<TipoDocumento>>(new Set())
   const [descargandoZip, setDescargandoZip] = useState(false)
   const [descargandoTipo, setDescargandoTipo] = useState<TipoDocumento | null>(null)
+  const [regenerandoTipo, setRegenerandoTipo] = useState<TipoDocumento | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previaAbierta, setPreviaAbierta] = useState<TipoDocumento | null>(null)
 
@@ -21,6 +24,8 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
       .then(([docs, info]) => {
         setDocumentos(docs)
         setPendientes(info?.pendientes ?? [])
+        setPuedeGenerar(info?.puede_generar ?? false)
+        setDocumentosDesactualizados(info?.documentos_desactualizados ?? false)
       })
       .finally(() => setCargando(false))
   }
@@ -31,7 +36,8 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
   }, [ideaId])
 
   // Nada que mostrar todavía: ni documentos generados ni pendientes por
-  // ofrecer (ej. la idea aún no fue aprobada por el CAB).
+  // ofrecer (ej. la idea todavía no tiene nada generado y tampoco se puede
+  // generar — no aplica para quien la está viendo).
   if (cargando || (documentos.length === 0 && pendientes.length === 0)) return null
 
   const documentosOrdenados = ORDEN_TIPOS_DOCUMENTO.map((tipo) => documentos.find((d) => d.tipo_documento === tipo)).filter(
@@ -59,6 +65,21 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
     }
   }
 
+  async function handleRegenerar(tipo: TipoDocumento) {
+    const confirmado = window.confirm('¿Regenerar este documento? Se perderá el contenido actual.')
+    if (!confirmado) return
+    setRegenerandoTipo(tipo)
+    setError(null)
+    try {
+      await generarDocumentos(ideaId, [tipo])
+      await cargar(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo regenerar el documento')
+    } finally {
+      setRegenerandoTipo(null)
+    }
+  }
+
   async function handleDescargarZip() {
     if (seleccionados.size === 0) return
     setDescargandoZip(true)
@@ -77,6 +98,13 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
       <h2 className="page-title" style={{ fontSize: 18, marginBottom: 12 }}>
         Documentos generados
       </h2>
+
+      {documentosDesactualizados && (
+        <div className="banner-documentos-desactualizados">
+          <FiAlertTriangle style={{ marginRight: 6, flexShrink: 0 }} />
+          Estos documentos podrían estar desactualizados — la idea tuvo cambios solicitados después de la última generación.
+        </div>
+      )}
 
       {error && <p className="form-error">{error}</p>}
 
@@ -116,6 +144,16 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
                     <FiDownload style={{ marginRight: 4 }} />
                     Descargar
                   </button>
+                  {puedeGenerar && (
+                    <button
+                      className="btn-small"
+                      disabled={regenerandoTipo === doc.tipo_documento}
+                      onClick={() => handleRegenerar(doc.tipo_documento)}
+                    >
+                      <FiRefreshCw style={{ marginRight: 4 }} />
+                      {regenerandoTipo === doc.tipo_documento ? 'Regenerando...' : 'Regenerar'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -130,7 +168,7 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
         </>
       )}
 
-      {pendientes.length > 0 && (
+      {puedeGenerar && pendientes.length > 0 && (
         <SelectorGenerarDocumentos ideaId={ideaId} tiposPendientes={pendientes} onGenerado={() => cargar(false)} />
       )}
 

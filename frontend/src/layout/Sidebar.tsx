@@ -1,7 +1,33 @@
-import { NavLink } from 'react-router-dom'
-import { FiBell, FiCheckSquare, FiClipboard, FiFileText, FiPlus, FiShield, FiTag, FiUsers } from 'react-icons/fi'
+import { useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
+import {
+  FiAward,
+  FiBell,
+  FiBriefcase,
+  FiCheckSquare,
+  FiChevronDown,
+  FiChevronRight,
+  FiClipboard,
+  FiFileText,
+  FiGrid,
+  FiHome,
+  FiKey,
+  FiPlus,
+  FiShield,
+  FiTag,
+  FiUsers,
+} from 'react-icons/fi'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import { useEsMiembroCab } from '../usuarios/hooks/useEsMiembroCab'
+
+const RUTAS_ORGANIZACION = [
+  '/organizacion/roles',
+  '/departamentos',
+  '/puestos',
+  '/comite-cab',
+  '/criterios',
+  '/notificaciones',
+]
 
 export default function Sidebar() {
   const usuarioActual = useUsuarioActual()
@@ -9,9 +35,35 @@ export default function Sidebar() {
   const esGerente = usuarioActual.rol === 'gerente'
   const puedeRevisar = esAdmin || usuarioActual.rol === 'encargado_area' || esGerente
   const { esMiembro: esMiembroCab } = useEsMiembroCab()
+  const location = useLocation()
+
+  const [organizacionAbierta, setOrganizacionAbierta] = useState(() =>
+    RUTAS_ORGANIZACION.includes(location.pathname),
+  )
 
   return (
     <nav className="app-sidebar">
+      <div className="sidebar-section">
+        <NavLink to="/" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} end>
+          <FiHome className="sidebar-link-icon" />
+          Inicio
+        </NavLink>
+      </div>
+
+      {(esAdmin || esGerente) && (
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Trazabilidad</div>
+          <NavLink to="/flow-control" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <FiGrid className="sidebar-link-icon" />
+            Flow Control
+          </NavLink>
+          <NavLink to="/admin/ideas" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <FiClipboard className="sidebar-link-icon" />
+            Panel de administración
+          </NavLink>
+        </div>
+      )}
+
       <div className="sidebar-section">
         <div className="sidebar-section-title">Colaborador</div>
         <NavLink to="/ideas/nueva" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
@@ -31,6 +83,12 @@ export default function Sidebar() {
             <FiCheckSquare className="sidebar-link-icon" />
             Por revisar
           </NavLink>
+          {esAdmin && (
+            <NavLink to="/clasificacion" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <FiTag className="sidebar-link-icon" />
+              Ideas por clasificar
+            </NavLink>
+          )}
         </div>
       )}
 
@@ -44,51 +102,64 @@ export default function Sidebar() {
         </div>
       )}
 
-      {(esAdmin || esGerente) && (
+      {esAdmin && (
         <div className="sidebar-section">
-          <div className="sidebar-section-title">Administración</div>
-          <NavLink to="/admin/ideas" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <FiClipboard className="sidebar-link-icon" />
-            Panel de administración
+          <div className="sidebar-section-title">Usuarios</div>
+          <NavLink to="/usuarios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <FiUsers className="sidebar-link-icon" />
+            Usuarios
           </NavLink>
-          {esAdmin && (
-            <NavLink to="/usuarios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <FiUsers className="sidebar-link-icon" />
-              Usuarios
-            </NavLink>
+        </div>
+      )}
+
+      <div className="sidebar-section">
+        <button
+          type="button"
+          className="sidebar-section-title sidebar-acordeon-boton"
+          onClick={() => setOrganizacionAbierta((prev) => !prev)}
+          aria-expanded={organizacionAbierta}
+        >
+          {organizacionAbierta ? (
+            <FiChevronDown className="sidebar-acordeon-icono" />
+          ) : (
+            <FiChevronRight className="sidebar-acordeon-icono" />
           )}
-        </div>
-      )}
+          Organización
+        </button>
 
-      {esAdmin && (
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">Clasificación</div>
-          <NavLink to="/clasificacion" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <FiTag className="sidebar-link-icon" />
-            Ideas por clasificar
-          </NavLink>
-        </div>
-      )}
-
-      {esAdmin && (
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">Criterios IA</div>
-          <NavLink to="/criterios" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <FiShield className="sidebar-link-icon" />
-            Documentos de criterios
-          </NavLink>
-        </div>
-      )}
-
-      {esAdmin && (
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">Notificaciones</div>
-          <NavLink to="/notificaciones" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <FiBell className="sidebar-link-icon" />
-            Escalamiento por inactividad
-          </NavLink>
-        </div>
-      )}
+        {organizacionAbierta && (
+          <>
+            <NavLink to="/organizacion/roles" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
+              <FiKey className="sidebar-link-icon" />
+              Roles y permisos
+            </NavLink>
+            {esAdmin && (
+              <>
+                <NavLink to="/departamentos" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
+                  <FiBriefcase className="sidebar-link-icon" />
+                  Departamentos
+                </NavLink>
+                <NavLink to="/puestos" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
+                  <FiTag className="sidebar-link-icon" />
+                  Puestos
+                </NavLink>
+                <NavLink to="/comite-cab" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
+                  <FiAward className="sidebar-link-icon" />
+                  Miembros del CAB
+                </NavLink>
+                <NavLink to="/criterios" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
+                  <FiShield className="sidebar-link-icon" />
+                  Criterios IA
+                </NavLink>
+                <NavLink to="/notificaciones" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
+                  <FiBell className="sidebar-link-icon" />
+                  Notificaciones
+                </NavLink>
+              </>
+            )}
+          </>
+        )}
+      </div>
     </nav>
   )
 }

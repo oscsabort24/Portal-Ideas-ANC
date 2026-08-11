@@ -4,21 +4,18 @@ import { ETIQUETA_TIPO_DOCUMENTO, ORDEN_TIPOS_DOCUMENTO, type TipoDocumento } fr
 
 /**
  * Selector de checkboxes para disparar la generación manual de
- * documentos — usado tanto justo después de aprobar en ColaComite.tsx
- * como para completar pendientes en DocumentosGenerados.tsx.
+ * documentos — usado en DocumentosGenerados.tsx para completar pendientes.
+ * Solo se monta cuando puede_generar es true (autor, antes de que la idea
+ * llegue a comité) — ver documentos/router.py:_puede_generar.
  */
 export default function SelectorGenerarDocumentos({
   ideaId,
   tiposPendientes,
   onGenerado,
-  mostrarOmitir = false,
-  onOmitir,
 }: {
   ideaId: number
   tiposPendientes: TipoDocumento[]
   onGenerado: () => void
-  mostrarOmitir?: boolean
-  onOmitir?: () => void
 }) {
   const [seleccionados, setSeleccionados] = useState<Set<TipoDocumento>>(new Set(tiposPendientes))
   const [generando, setGenerando] = useState(false)
@@ -68,11 +65,6 @@ export default function SelectorGenerarDocumentos({
         <button className="btn-primary" disabled={seleccionados.size === 0 || generando} onClick={handleGenerar}>
           {generando ? 'Generando...' : 'Generar ahora'}
         </button>
-        {mostrarOmitir && (
-          <button className="btn-secundario" disabled={generando} onClick={onOmitir}>
-            Más tarde
-          </button>
-        )}
       </div>
     </div>
   )

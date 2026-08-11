@@ -29,4 +29,6 @@ export const ORDEN_TIPOS_DOCUMENTO: TipoDocumento[] = [
 export interface PendientesDocumentos {
   generados: TipoDocumento[]
   pendientes: TipoDocumento[]
+  puede_generar: boolean
+  documentos_desactualizados: boolean
 }

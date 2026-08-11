@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FiFileText } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
-import SelectorGenerarDocumentos from '../../documentos/components/SelectorGenerarDocumentos'
-import { obtenerPendientes } from '../../documentos/api'
-import type { TipoDocumento } from '../../documentos/types'
+import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
 import { listarUsuarios } from '../../usuarios/api'
 import { useEsMiembroCab } from '../../usuarios/hooks/useEsMiembroCab'
@@ -31,7 +29,6 @@ export default function ColaComite() {
   const [motivoAbiertoPara, setMotivoAbiertoPara] = useState<number | null>(null)
   const [motivo, setMotivo] = useState('')
   const [enviando, setEnviando] = useState(false)
-  const [pendientesPorIdea, setPendientesPorIdea] = useState<Record<number, TipoDocumento[]>>({})
   const [riceAbiertoPara, setRiceAbiertoPara] = useState<number | null>(null)
 
   useEffect(() => {
@@ -75,23 +72,15 @@ export default function ColaComite() {
     setError(null)
     try {
       await aprobar(ideaId)
-      // No se quita de la cola todavía — se muestra el selector de
-      // documentos inline; recién se quita al generar o al elegir
-      // "Más tarde" (ver finalizarAprobacion).
-      const info = await obtenerPendientes(ideaId)
-      setPendientesPorIdea((prev) => ({ ...prev, [ideaId]: info.pendientes }))
+      // Los documentos ya no se generan acá: para cuando una idea llega a
+      // esta cola, ComiteIdea ya existe y los documentos quedaron
+      // congelados (ver documentos/router.py:_puede_generar) — el autor ya
+      // los generó (o no) antes de que la idea llegara a comité. Aprobar
+      // vuelve a ser una acción simple.
+      setCola((prev) => prev.filter((c) => c.idea_id !== ideaId))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo aprobar la idea')
     }
-  }
-
-  function finalizarAprobacion(ideaId: number) {
-    setCola((prev) => prev.filter((c) => c.idea_id !== ideaId))
-    setPendientesPorIdea((prev) => {
-      const siguiente = { ...prev }
-      delete siguiente[ideaId]
-      return siguiente
-    })
   }
 
   async function handleRechazar(ideaId: number) {
@@ -163,17 +152,17 @@ export default function ColaComite() {
                 </div>
               </div>
 
-              <ResumenYPreguntas ideaId={c.idea_id} />
+              <ResumenYPreguntas ideaId={c.idea_id} origen="comite" />
 
-              {pendientesPorIdea[c.idea_id] ? (
-                <SelectorGenerarDocumentos
-                  ideaId={c.idea_id}
-                  tiposPendientes={pendientesPorIdea[c.idea_id]}
-                  mostrarOmitir
-                  onGenerado={() => finalizarAprobacion(c.idea_id)}
-                  onOmitir={() => finalizarAprobacion(c.idea_id)}
-                />
-              ) : motivoAbiertoPara === c.id ? (
+              {/* Solo lectura para CAB: los documentos ya quedaron
+                  congelados apenas la idea llegó a esta cola (existe
+                  ComiteIdea). puede_generar viene en false desde el
+                  backend, así que este mismo componente no ofrece
+                  generar/regenerar acá — se auto-oculta si el autor no
+                  generó nada. */}
+              <DocumentosGenerados ideaId={c.idea_id} />
+
+              {motivoAbiertoPara === c.id ? (
                 <div className="form-field" style={{ marginTop: 12 }}>
                   <label className="form-label" htmlFor={`motivo-${c.id}`}>Motivo de rechazo</label>
                   <textarea

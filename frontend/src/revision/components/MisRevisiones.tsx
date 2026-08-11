@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FiFileText } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
+import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
 import { listarUsuarios } from '../../usuarios/api'
 import type { Usuario } from '../../usuarios/types'
 import { aprobar, misRevisiones, pedirCambios, reasignar } from '../api'
@@ -127,6 +128,8 @@ export default function MisRevisiones() {
                   </div>
                 </div>
               </div>
+
+              <ResumenYPreguntas ideaId={r.idea_id} origen="revision" />
 
               {accionAbierta?.revisionId === r.id && accionAbierta.tipo === 'cambios' && (
                 <div className="form-field" style={{ marginTop: 12 }}>
