@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { FiPlus, FiUser } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import { actualizarUsuario, listarDepartamentos, listarPuestos, listarUsuarios } from '../api'
-import { DESCRIPCION_ROL, ETIQUETA_ROL, type Departamento, type Puesto, type RolUsuario, type Usuario } from '../types'
+import { DESCRIPCION_ROL, ETIQUETA_ROL, ROLES_ORDENADOS, type Departamento, type Puesto, type Usuario } from '../types'
 import FormularioPersona from './FormularioPersona'
-
-const ROLES_LEYENDA: RolUsuario[] = ['colaborador', 'encargado_area', 'gerente', 'admin']
 
 function normalizar(texto: string): string {
   return Array.from(texto.normalize('NFD'))
@@ -91,7 +89,7 @@ export default function ListaPersonas() {
   return (
     <div>
       <div className="leyenda-roles">
-        {ROLES_LEYENDA.map((r) => (
+        {ROLES_ORDENADOS.map((r) => (
           <div key={r} className="leyenda-roles-item">
             <strong>{ETIQUETA_ROL[r]}:</strong> {DESCRIPCION_ROL[r]}
           </div>
