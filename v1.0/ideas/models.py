@@ -60,6 +60,13 @@ class Idea(Base):
     # entrevista no ha tenido ningún turno todavía.
     progreso_bloques: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Cache del resumen real generado por IA (ver core/claude_client.py:
+    # generar_resumen_idea) para GET /ideas/{id}/resumen — se recalcula solo
+    # cuando el transcript tiene mensajes nuevos desde resumen_ia_generado_en
+    # (ver ideas/router.py:obtener_resumen), no en cada request.
+    resumen_ia: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+    resumen_ia_generado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     mensajes: Mapped[list["MensajeEntrevista"]] = relationship(
         back_populates="idea", order_by="MensajeEntrevista.orden"
     )

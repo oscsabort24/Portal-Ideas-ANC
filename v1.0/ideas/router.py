@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from comites.models import ComiteIdea
-from core.claude_client import EstadoBloque, generar_respuesta, responder_pregunta_idea
+from core.claude_client import EstadoBloque, generar_respuesta, generar_resumen_idea, responder_pregunta_idea
 from core.database import get_db
 from ideas import schemas
 from ideas.models import EstadoIdea, Idea, MensajeEntrevista, OrigenPregunta, PreguntaIdea, RolMensaje
@@ -372,27 +372,47 @@ def obtener_resumen(
     if not _tiene_acceso_revision_o_comite(db, idea, usuario_actual):
         raise HTTPException(status_code=403, detail="No tienes acceso al resumen de esta idea")
 
-    ultimo_mensaje_asistente = (
+    historial = (
         db.query(MensajeEntrevista)
-        .filter(MensajeEntrevista.idea_id == idea_id, MensajeEntrevista.rol == RolMensaje.asistente)
-        .order_by(MensajeEntrevista.orden.desc())
-        .first()
+        .filter(MensajeEntrevista.idea_id == idea_id)
+        .order_by(MensajeEntrevista.orden)
+        .all()
+    )
+    ultimo_mensaje_asistente = next(
+        (m for m in reversed(historial) if m.rol == RolMensaje.asistente), None
     )
     if not ultimo_mensaje_asistente:
         raise HTTPException(status_code=404, detail="Esta idea todavía no tiene un resumen disponible")
 
     analisis_riesgo = db.query(AnalisisRiesgoIdea).filter_by(idea_id=idea_id).first()
 
-    # PARCHE TEMPORAL: esto NO es un resumen sintetizado de la idea (problema
-    # + propuesta + beneficio) — es el último turno del asistente en la
-    # entrevista, que normalmente es una pregunta de seguimiento, no una
-    # síntesis. Se etiqueta explícitamente para que quien revisa no lo
-    # confunda con un resumen real. Pendiente como mejora futura: generar
-    # un resumen real vía IA a partir del historial completo (ver
-    # core/claude_client.py:responder_pregunta_idea para el patrón de
-    # llamada) y cachearlo (ej. en Idea o RevisionIdea) para no recalcularlo
-    # en cada GET.
-    resumen_texto = "Último intercambio de la entrevista:\n" + ultimo_mensaje_asistente.contenido
+    # Cache en Idea.resumen_ia: válido mientras no haya mensajes nuevos desde
+    # que se generó (comparar contra el timestamp del último mensaje del
+    # transcript, sin importar el rol — una respuesta nueva del colaborador
+    # también invalida el resumen, no solo un turno del asistente).
+    ultimo_mensaje = historial[-1]
+    cache_vigente = (
+        idea.resumen_ia is not None
+        and idea.resumen_ia_generado_en is not None
+        and idea.resumen_ia_generado_en >= ultimo_mensaje.creado_en
+    )
+
+    if cache_vigente:
+        resumen_texto = idea.resumen_ia
+    else:
+        mensajes_para_ia = [{"role": m.rol.value, "content": m.contenido} for m in historial]
+        resumen_generado = generar_resumen_idea(mensajes_para_ia)
+        if resumen_generado is not None:
+            idea.resumen_ia = resumen_generado
+            idea.resumen_ia_generado_en = datetime.now(timezone.utc)
+            db.commit()
+            resumen_texto = resumen_generado
+        else:
+            # Fallback si la IA falla (ver generar_resumen_idea): NO es un
+            # resumen sintetizado, es el último turno del asistente — mejor
+            # que un mensaje de error crudo, mismo criterio que ya se usaba
+            # acá antes de tener resumen real.
+            resumen_texto = "Último intercambio de la entrevista:\n" + ultimo_mensaje_asistente.contenido
 
     # Una idea con fila en ComiteIdea ya pasó por revisión aprobada —
     # revision/router.py:mis_revisiones solo lista revisiones en estado

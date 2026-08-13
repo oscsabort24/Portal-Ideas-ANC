@@ -946,6 +946,69 @@ def responder_pregunta_idea(historial: list[dict], pregunta: str) -> str:
     return "No se pudo procesar la pregunta en este momento. Intenta de nuevo."
 
 
+def generar_resumen_idea(historial: list[dict]) -> str | None:
+    """Genera un resumen real (problema + propuesta + beneficio) de una idea
+    a partir del transcript completo de su entrevista, para quien la revisa
+    (ideas/router.py:obtener_resumen). Antes de esto, ese endpoint devolvía
+    el último mensaje del asistente tal cual.
+
+    Devuelve None ante cualquier fallo de la API o de parseo — el caller
+    (ideas/router.py:obtener_resumen) debe interpretar eso como "usa el
+    fallback del último intercambio de la entrevista", nunca debe romper la
+    vista de revisión ni mostrar un mensaje de error crudo donde antes había
+    contenido (mismo criterio que asignar_revisor_ia/analizar_riesgo_idea).
+
+    Mismo formato de entrada que responder_pregunta_idea: [{"role": ...,
+    "content": ...}] con role "asistente"/"usuario".
+    """
+    if settings.claude_stub_mode:
+        return "[STUB] Resumen simulado de la idea."
+
+    transcripcion = "\n\n".join(
+        f"{'Asistente' if m['role'] == 'asistente' else 'Usuario'}: {m['content']}"
+        for m in historial
+    ) or "(sin mensajes de entrevista registrados)"
+
+    try:
+        response = _client.messages.create(
+            model=settings.claude_model,
+            max_tokens=1024,
+            system=(
+                "Eres un asistente que resume ideas de mejora para quien las revisa o "
+                "aprueba. A partir del historial completo de una entrevista, redacta un "
+                "resumen de 2 a 3 líneas que cubra: el problema identificado, la "
+                "propuesta/solución planteada, y el beneficio esperado.\n\n"
+                "Basate ÚNICAMENTE en lo que dice la conversación — si algo no se "
+                "mencionó (ej. no hay beneficio claro todavía), decilo explícitamente "
+                "en vez de inventarlo.\n\n"
+                "IDIOMA: Siempre en español."
+            ),
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Historial completo de la entrevista:\n\n{transcripcion}",
+                }
+            ],
+        )
+    except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
+        logger.error("generar_resumen_idea: fallo de API: %s", exc)
+        return None
+    except Exception:
+        # Red de seguridad — ver generar_respuesta.
+        logger.exception("generar_resumen_idea: excepción no prevista")
+        return None
+
+    # Mismo cuidado que responder_pregunta_idea: con razonamiento adaptativo
+    # activo el primer bloque puede ser un ThinkingBlock, no texto — no
+    # asumir response.content[0].
+    for bloque in response.content:
+        if bloque.type == "text":
+            return bloque.text
+
+    logger.error("generar_resumen_idea: la respuesta no tuvo ningún bloque de texto")
+    return None
+
+
 TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3
 
 
