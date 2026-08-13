@@ -31,14 +31,21 @@ def _obtener_idea(db: Session, idea_id: int) -> Idea:
 
 
 def _validar_acceso(db: Session, idea: Idea, usuario: usuarios_models.Usuario) -> None:
-    """Acceso de LECTURA (listar/descargar/preview/pdf/zip) — sin cambios:
-    admin, el autor, o un miembro del CAB correspondiente si la idea ya
-    llegó a comité. Ver _puede_generar() para el permiso de generar/
+    """Acceso de LECTURA (listar/descargar/preview/pdf/zip): admin, el autor,
+    el encargado_area asignado como revisor de la idea (mismo criterio que
+    _puede_generar, para que pueda ver /pendientes y generar el one-pager
+    desde su vista de revisión), o un miembro del CAB correspondiente si la
+    idea ya llegó a comité. Ver _puede_generar() para el permiso de generar/
     regenerar, que es más restrictivo que este."""
     if usuario.rol == usuarios_models.RolUsuario.admin:
         return
     if idea.autor_id == usuario.id:
         return
+
+    if usuario.rol == usuarios_models.RolUsuario.encargado_area:
+        revision = db.query(RevisionIdea).filter_by(idea_id=idea.id).first()
+        if revision is not None and revision.revisor_id == usuario.id:
+            return
 
     comite = db.query(ComiteIdea).filter_by(idea_id=idea.id).first()
     if comite:
@@ -68,16 +75,32 @@ def _puede_generar(db: Session, idea: Idea, usuario: usuarios_models.Usuario) ->
     importar si está pendiente, aprobada o rechazada), los documentos
     quedan congelados: ni el autor ni CAB pueden generar más, solo
     ver/descargar lo que ya exista.
+
+    El encargado_area asignado como revisor de la idea tiene el mismo
+    permiso que el autor mientras dure la revisión (mismo estado/ComiteIdea
+    que arriba) — cubre el caso de que el colaborador no haya generado el
+    one-pager antes de enviar. En la práctica queda acotado a los tipos de
+    documento que _tipos_permitidos_para_rol ya habilite para encargado_area
+    (por semilla, solo "onepager"), sin necesidad de hardcodear el tipo acá.
     """
     if usuario.rol == usuarios_models.RolUsuario.admin:
         return True
-    if idea.autor_id != usuario.id:
-        return False
     if idea.estado != EstadoIdea.enviada:
         return False
 
     comite_existe = db.query(ComiteIdea).filter_by(idea_id=idea.id).first() is not None
-    return not comite_existe
+    if comite_existe:
+        return False
+
+    if idea.autor_id == usuario.id:
+        return True
+
+    if usuario.rol == usuarios_models.RolUsuario.encargado_area:
+        revision = db.query(RevisionIdea).filter_by(idea_id=idea.id).first()
+        if revision is not None and revision.revisor_id == usuario.id:
+            return True
+
+    return False
 
 
 def _tipos_permitidos_para_rol(db: Session, rol: usuarios_models.RolUsuario) -> set[TipoDocumento]:

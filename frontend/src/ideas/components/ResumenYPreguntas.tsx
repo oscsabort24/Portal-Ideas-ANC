@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FiMessageCircle } from 'react-icons/fi'
-import { obtenerResumen, preguntarSobreIdea } from '../api'
+import { obtenerIdea, obtenerResumen, preguntarSobreIdea } from '../api'
+import type { MensajeEntrevista } from '../types'
 
 interface PreguntaRespuesta {
   pregunta: string
@@ -38,6 +39,10 @@ export default function ResumenYPreguntas({
   const [preguntaActual, setPreguntaActual] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [transcriptAbierto, setTranscriptAbierto] = useState(false)
+  const [transcriptMensajes, setTranscriptMensajes] = useState<MensajeEntrevista[] | null>(null)
+  const [cargandoTranscript, setCargandoTranscript] = useState(false)
+  const [errorTranscript, setErrorTranscript] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelado = false
@@ -89,6 +94,17 @@ export default function ResumenYPreguntas({
     }
   }
 
+  function handleVerEntrevistaCompleta() {
+    setTranscriptAbierto(true)
+    if (transcriptMensajes !== null) return
+    setCargandoTranscript(true)
+    setErrorTranscript(null)
+    obtenerIdea(ideaId)
+      .then((idea) => setTranscriptMensajes(idea.mensajes))
+      .catch((err) => setErrorTranscript(err instanceof Error ? err.message : 'No se pudo cargar la entrevista'))
+      .finally(() => setCargandoTranscript(false))
+  }
+
   return (
     <div className="form-card" style={{ marginBottom: 16 }}>
       <p className="form-label">
@@ -134,6 +150,12 @@ export default function ResumenYPreguntas({
         <p style={{ color: 'var(--text-muted)', fontSize: 13, fontStyle: 'italic' }}>{resumenNoDisponible}</p>
       )}
 
+      {origen === 'revision' && (
+        <button className="btn-small" style={{ marginTop: 4 }} onClick={handleVerEntrevistaCompleta}>
+          Ver entrevista completa
+        </button>
+      )}
+
       <p className="form-label" style={{ marginTop: 16 }}>
         <FiMessageCircle style={{ marginRight: 4, verticalAlign: 'middle' }} />
         Preguntas sobre esta idea
@@ -175,6 +197,47 @@ export default function ResumenYPreguntas({
           {enviando ? 'Preguntando...' : 'Preguntar'}
         </button>
       </div>
+
+      {transcriptAbierto && (
+        <div
+          className="preview-overlay"
+          onClick={(e) => e.target === e.currentTarget && setTranscriptAbierto(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="preview-modal">
+            <div className="preview-modal-header">
+              <span className="preview-modal-title">Entrevista completa</span>
+              <button
+                className="preview-modal-close"
+                onClick={() => setTranscriptAbierto(false)}
+                aria-label="Cerrar entrevista completa"
+              >
+                ×
+              </button>
+            </div>
+            <div className="preview-modal-body" style={{ padding: '16px 20px' }}>
+              {cargandoTranscript && <p style={{ color: 'var(--text-muted)' }}>Cargando entrevista...</p>}
+              {errorTranscript && <p className="form-error">{errorTranscript}</p>}
+              {!cargandoTranscript && !errorTranscript && transcriptMensajes && transcriptMensajes.length === 0 && (
+                <p style={{ color: 'var(--text-muted)' }}>Esta idea todavía no tiene mensajes en su entrevista.</p>
+              )}
+              {!cargandoTranscript && transcriptMensajes && transcriptMensajes.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {transcriptMensajes.map((m) => (
+                    <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>
+                        {m.rol === 'usuario' ? 'Colaborador' : 'Asistente IA'}
+                      </span>
+                      <span style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.contenido}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
