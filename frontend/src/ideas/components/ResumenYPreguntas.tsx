@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { FiMessageCircle } from 'react-icons/fi'
 import { obtenerIdea, obtenerResumen, preguntarSobreIdea } from '../api'
 import type { MensajeEntrevista } from '../types'
@@ -198,46 +199,59 @@ export default function ResumenYPreguntas({
         </button>
       </div>
 
-      {transcriptAbierto && (
-        <div
-          className="preview-overlay"
-          onClick={(e) => e.target === e.currentTarget && setTranscriptAbierto(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="preview-modal">
-            <div className="preview-modal-header">
-              <span className="preview-modal-title">Entrevista completa</span>
-              <button
-                className="preview-modal-close"
-                onClick={() => setTranscriptAbierto(false)}
-                aria-label="Cerrar entrevista completa"
+      {transcriptAbierto &&
+        createPortal(
+          // Portal a document.body: este modal se abre desde dentro de una
+          // idea-card en una lista (MisRevisiones.tsx) — quedándose anidado
+          // en ese árbol, cualquier ancestro que genere un containing block
+          // (transform en hover, contenedor con scroll propio, etc.) puede
+          // atrapar el position:fixed y hacer que el overlay solo cubra esa
+          // card en vez de la pantalla completa, mezclándose visualmente con
+          // el resto del contenido. El portal lo saca de ese árbol de DOM
+          // por completo (los eventos de React siguen burbujeando normal).
+          <div
+            className="preview-overlay"
+            onClick={(e) => e.target === e.currentTarget && setTranscriptAbierto(false)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="preview-modal">
+              <div className="preview-modal-header">
+                <span className="preview-modal-title">Entrevista completa</span>
+                <button
+                  className="preview-modal-close"
+                  onClick={() => setTranscriptAbierto(false)}
+                  aria-label="Cerrar entrevista completa"
+                >
+                  ×
+                </button>
+              </div>
+              <div
+                className="preview-modal-body"
+                style={{ padding: '16px 20px', overflowY: 'auto', maxHeight: '70vh' }}
               >
-                ×
-              </button>
+                {cargandoTranscript && <p style={{ color: 'var(--text-muted)' }}>Cargando entrevista...</p>}
+                {errorTranscript && <p className="form-error">{errorTranscript}</p>}
+                {!cargandoTranscript && !errorTranscript && transcriptMensajes && transcriptMensajes.length === 0 && (
+                  <p style={{ color: 'var(--text-muted)' }}>Esta idea todavía no tiene mensajes en su entrevista.</p>
+                )}
+                {!cargandoTranscript && transcriptMensajes && transcriptMensajes.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {transcriptMensajes.map((m) => (
+                      <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>
+                          {m.rol === 'usuario' ? 'Colaborador' : 'Asistente IA'}
+                        </span>
+                        <span style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.contenido}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="preview-modal-body" style={{ padding: '16px 20px' }}>
-              {cargandoTranscript && <p style={{ color: 'var(--text-muted)' }}>Cargando entrevista...</p>}
-              {errorTranscript && <p className="form-error">{errorTranscript}</p>}
-              {!cargandoTranscript && !errorTranscript && transcriptMensajes && transcriptMensajes.length === 0 && (
-                <p style={{ color: 'var(--text-muted)' }}>Esta idea todavía no tiene mensajes en su entrevista.</p>
-              )}
-              {!cargandoTranscript && transcriptMensajes && transcriptMensajes.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {transcriptMensajes.map((m) => (
-                    <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>
-                        {m.rol === 'usuario' ? 'Colaborador' : 'Asistente IA'}
-                      </span>
-                      <span style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.contenido}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
