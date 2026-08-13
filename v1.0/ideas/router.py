@@ -383,7 +383,16 @@ def obtener_resumen(
 
     analisis_riesgo = db.query(AnalisisRiesgoIdea).filter_by(idea_id=idea_id).first()
 
-    resumen_texto = ultimo_mensaje_asistente.contenido
+    # PARCHE TEMPORAL: esto NO es un resumen sintetizado de la idea (problema
+    # + propuesta + beneficio) — es el último turno del asistente en la
+    # entrevista, que normalmente es una pregunta de seguimiento, no una
+    # síntesis. Se etiqueta explícitamente para que quien revisa no lo
+    # confunda con un resumen real. Pendiente como mejora futura: generar
+    # un resumen real vía IA a partir del historial completo (ver
+    # core/claude_client.py:responder_pregunta_idea para el patrón de
+    # llamada) y cachearlo (ej. en Idea o RevisionIdea) para no recalcularlo
+    # en cada GET.
+    resumen_texto = "Último intercambio de la entrevista:\n" + ultimo_mensaje_asistente.contenido
 
     # Una idea con fila en ComiteIdea ya pasó por revisión aprobada —
     # revision/router.py:mis_revisiones solo lista revisiones en estado

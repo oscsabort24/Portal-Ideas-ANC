@@ -260,9 +260,18 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
             messages=mensajes_anthropic,
             output_format=RespuestaEntrevista,
         )
-    except anthropic.APIStatusError:
-        # Fallo real de la API (rate limit, 5xx, etc.) — no rompe la
-        # conversación, degrada a un mensaje visible para reintentar.
+    except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
+        # Fallo real de la API (rate limit, 5xx, timeout, red, etc.) — no
+        # rompe la conversación, degrada a un mensaje visible para reintentar.
+        logger.error("generar_respuesta: fallo de API: %s", exc)
+        return dict(_RESPUESTA_DEGRADADA_API)
+    except Exception:
+        # Red de seguridad: cualquier excepción no prevista que llegue hasta
+        # acá sin atrapar se propagaría sin manejar hasta el router y
+        # terminaría en un 500 fuera del stack de CORSMiddleware — el
+        # navegador lo reporta como error de CORS en vez de como el fallo
+        # real que es (ver diagnóstico de ideas/router.py:preguntar).
+        logger.exception("generar_respuesta: excepción no prevista")
         return dict(_RESPUESTA_DEGRADADA_API)
 
     parsed = response.parsed_output
@@ -543,12 +552,16 @@ def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dic
             messages=mensajes_anthropic,
             output_format=ContenidoDocumentosMultiple,
         )
-    except anthropic.APIStatusError as exc:
+    except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
         # Fallo real de la API: documentos/generadores.py ya usa
         # `.get(clave) or "Pendiente de definir"` en cada campo, así que un
         # dict vacío por tipo es un fallback seguro — el .docx sale con
         # los campos narrativos marcados como pendientes, no rompe nada.
         logger.error("generar_contenido_documentos: fallo de API: %s", exc)
+        return {tipo: {} for tipo in tipos}
+    except Exception:
+        # Red de seguridad — ver generar_respuesta.
+        logger.exception("generar_contenido_documentos: excepción no prevista")
         return {tipo: {} for tipo in tipos}
 
     parsed = response.parsed_output
@@ -656,8 +669,12 @@ def clasificar_idea(historial: list[dict], criterio_texto: str) -> dict | None:
             messages=mensajes_anthropic,
             output_format=ClasificacionResultado,
         )
-    except anthropic.APIStatusError as exc:
+    except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
         logger.error("clasificar_idea: fallo de API: %s", exc)
+        return None
+    except Exception:
+        # Red de seguridad — ver generar_respuesta.
+        logger.exception("clasificar_idea: excepción no prevista")
         return None
 
     parsed = response.parsed_output
@@ -759,8 +776,12 @@ def asignar_revisor_ia(
             messages=mensajes_anthropic,
             output_format=AsignacionRevisorResultado,
         )
-    except anthropic.APIStatusError as exc:
+    except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
         logger.error("asignar_revisor_ia: fallo de API: %s", exc)
+        return None
+    except Exception:
+        # Red de seguridad — ver generar_respuesta.
+        logger.exception("asignar_revisor_ia: excepción no prevista")
         return None
 
     parsed = response.parsed_output
@@ -835,8 +856,12 @@ def analizar_riesgo_idea(historial: list[dict]) -> dict | None:
             messages=mensajes_anthropic,
             output_format=AnalisisRiesgoResultado,
         )
-    except anthropic.APIStatusError as exc:
+    except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
         logger.error("analizar_riesgo_idea: fallo de API: %s", exc)
+        return None
+    except Exception:
+        # Red de seguridad — ver generar_respuesta.
+        logger.exception("analizar_riesgo_idea: excepción no prevista")
         return None
 
     parsed = response.parsed_output
@@ -892,11 +917,33 @@ def responder_pregunta_idea(historial: list[dict], pregunta: str) -> str:
                 }
             ],
         )
-    except anthropic.APIStatusError as exc:
+    except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
         logger.error("responder_pregunta_idea: fallo de API: %s", exc)
         return "No se pudo procesar la pregunta en este momento. Intenta de nuevo."
+    except Exception:
+        # Red de seguridad: sin esto, una excepción no prevista (ej. timeout
+        # de red hacia Anthropic, más probable en conexiones remotas/lentas)
+        # se propagaba sin atrapar hasta ideas/router.py:preguntar, y de ahí
+        # a un 500 fuera del stack de CORSMiddleware — el navegador lo
+        # reportaba como "blocked by CORS policy" en vez de como el fallo
+        # real que era.
+        logger.exception("responder_pregunta_idea: excepción no prevista")
+        return "No se pudo procesar la pregunta en este momento. Intenta de nuevo."
 
-    return response.content[0].text
+    # BUG REAL encontrado en diagnóstico: `response.content[0].text` asumía
+    # que el primer bloque siempre es texto, pero con razonamiento adaptativo
+    # activo (ver generar_respuesta más arriba) el primer bloque es
+    # SIEMPRE un ThinkingBlock, no un TextBlock — `.text` no existe ahí y
+    # esto rompía el endpoint el 100% de las veces (no intermitente), con el
+    # mismo síntoma de "CORS bloqueado" que el except Exception de arriba
+    # ahora atrapa. El fix real es buscar el primer bloque de tipo "text" en
+    # vez de asumir la posición 0.
+    for bloque in response.content:
+        if bloque.type == "text":
+            return bloque.text
+
+    logger.error("responder_pregunta_idea: la respuesta no tuvo ningún bloque de texto")
+    return "No se pudo procesar la pregunta en este momento. Intenta de nuevo."
 
 
 TURNOS_USUARIO_PARA_COMPLETAR_STUB = 3
