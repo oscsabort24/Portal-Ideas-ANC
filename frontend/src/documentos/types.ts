@@ -31,4 +31,9 @@ export interface PendientesDocumentos {
   pendientes: TipoDocumento[]
   puede_generar: boolean
   documentos_desactualizados: boolean
+  // Tipos que el rol del usuario actual puede GENERAR (ver
+  // documentos/router.py:_tipos_permitidos_para_rol) — ej. colaborador solo
+  // tiene "onepager" habilitado por defecto, aunque `pendientes` incluya
+  // los otros 5 tipos que todavía no se generaron para la idea.
+  tipos_permitidos_rol: TipoDocumento[]
 }

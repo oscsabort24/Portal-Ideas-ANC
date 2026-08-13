@@ -8,6 +8,7 @@ import VistaPreviaDocumento from './VistaPreviaDocumento'
 export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
   const [documentos, setDocumentos] = useState<DocumentoGenerado[]>([])
   const [pendientes, setPendientes] = useState<TipoDocumento[]>([])
+  const [tiposPermitidosRol, setTiposPermitidosRol] = useState<TipoDocumento[]>([])
   const [puedeGenerar, setPuedeGenerar] = useState(false)
   const [documentosDesactualizados, setDocumentosDesactualizados] = useState(false)
   const [cargando, setCargando] = useState(true)
@@ -24,6 +25,7 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
       .then(([docs, info]) => {
         setDocumentos(docs)
         setPendientes(info?.pendientes ?? [])
+        setTiposPermitidosRol(info?.tipos_permitidos_rol ?? [])
         setPuedeGenerar(info?.puede_generar ?? false)
         setDocumentosDesactualizados(info?.documentos_desactualizados ?? false)
       })
@@ -43,6 +45,12 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
   const documentosOrdenados = ORDEN_TIPOS_DOCUMENTO.map((tipo) => documentos.find((d) => d.tipo_documento === tipo)).filter(
     (d): d is DocumentoGenerado => d !== undefined,
   )
+
+  // Mismo filtro que ya aplica el backend en _tipos_permitidos_para_rol —
+  // sin esto, un colaborador (solo "onepager" habilitado) veía checkboxes
+  // para charter/bpmn/raci/bmc/business_case que el POST /generar de
+  // todas formas iba a rechazar con 403.
+  const pendientesPermitidos = pendientes.filter((tipo) => tiposPermitidosRol.includes(tipo))
 
   function toggleSeleccionado(tipo: TipoDocumento) {
     setSeleccionados((prev) => {
@@ -144,7 +152,7 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
                     <FiDownload style={{ marginRight: 4 }} />
                     Descargar
                   </button>
-                  {puedeGenerar && (
+                  {puedeGenerar && tiposPermitidosRol.includes(doc.tipo_documento) && (
                     <button
                       className="btn-small"
                       disabled={regenerandoTipo === doc.tipo_documento}
@@ -168,8 +176,8 @@ export default function DocumentosGenerados({ ideaId }: { ideaId: number }) {
         </>
       )}
 
-      {puedeGenerar && pendientes.length > 0 && (
-        <SelectorGenerarDocumentos ideaId={ideaId} tiposPendientes={pendientes} onGenerado={() => cargar(false)} />
+      {puedeGenerar && pendientesPermitidos.length > 0 && (
+        <SelectorGenerarDocumentos ideaId={ideaId} tiposPendientes={pendientesPermitidos} onGenerado={() => cargar(false)} />
       )}
 
       {previaAbierta && (
