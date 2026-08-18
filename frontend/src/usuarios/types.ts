@@ -59,6 +59,43 @@ export interface Usuario {
   activo: boolean
 }
 
+export type ClavePermiso =
+  | 've_todas_las_ideas'
+  | 've_flow_control'
+  | 'es_revisor_elegible'
+  | 'corrige_clasificacion'
+
+export const ETIQUETA_PERMISO: Record<ClavePermiso, string> = {
+  ve_todas_las_ideas: 'Ve todas las ideas del sistema (Panel de administración)',
+  ve_flow_control: 'Ve Flow Control (Trazabilidad)',
+  es_revisor_elegible: 'Puede ser asignado como revisor',
+  corrige_clasificacion: 'Puede corregir la clasificación de una idea',
+}
+
+export const PERMISOS_ORDENADOS: ClavePermiso[] = [
+  've_todas_las_ideas',
+  've_flow_control',
+  'es_revisor_elegible',
+  'corrige_clasificacion',
+]
+
+/** Roles que se pueden configurar en la grilla de permisos — admin queda
+ * afuera a propósito: siempre tiene todo, no es configurable. */
+export const ROLES_CONFIGURABLES: RolUsuario[] = ['colaborador', 'encargado_area', 'gerente']
+
+export interface PermisoRol {
+  id: number
+  rol: RolUsuario
+  clave_permiso: ClavePermiso
+  permitido: boolean
+}
+
+export interface PermisoRolActualizar {
+  rol: RolUsuario
+  clave_permiso: ClavePermiso
+  permitido: boolean
+}
+
 export interface MiembroCAB {
   id: number
   usuario_id: number

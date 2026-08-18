@@ -3,7 +3,7 @@ import { FiFileText } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
-import { listarUsuarios } from '../../usuarios/api'
+import { listarUsuarios, rolesConPermiso } from '../../usuarios/api'
 import type { Usuario } from '../../usuarios/types'
 import { aprobar, misRevisiones, pedirCambios, reasignar } from '../api'
 import type { RevisionDetalle } from '../types'
@@ -14,6 +14,7 @@ export default function MisRevisiones() {
   const usuarioActual = useUsuarioActual()
   const [revisiones, setRevisiones] = useState<RevisionDetalle[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
+  const [rolesElegibles, setRolesElegibles] = useState<string[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [accionAbierta, setAccionAbierta] = useState<AccionAbierta>(null)
@@ -34,17 +35,19 @@ export default function MisRevisiones() {
   }
 
   useEffect(cargar, [])
+  useEffect(() => {
+    rolesConPermiso('es_revisor_elegible').then(setRolesElegibles)
+  }, [])
 
   function nombreAutor(autorId: number): string {
     return usuarios.find((u) => u.id === autorId)?.nombre ?? '—'
   }
 
-  // encargado_area, gerente y admin estan todos habilitados para revisar.
+  // Roles habilitados para revisar (permiso configurable es_revisor_elegible,
+  // ver diseno-pendiente/fase-permisos-por-rol.md.preview — admin ya viene
+  // incluido en rolesElegibles por bypass del backend).
   const encargadosActivos = usuarios.filter(
-    (u) =>
-      (u.rol === 'encargado_area' || u.rol === 'gerente' || u.rol === 'admin') &&
-      u.activo &&
-      u.id !== usuarioActual.id,
+    (u) => rolesElegibles.includes(u.rol) && u.activo && u.id !== usuarioActual.id,
   )
 
   function cerrarAccion() {

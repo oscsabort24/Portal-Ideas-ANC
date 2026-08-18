@@ -13,6 +13,8 @@ from revision.models import EstadoRevision, RevisionIdea
 from revision.service import crear_revision_para_idea
 from riesgo.models import AnalisisRiesgoIdea
 from riesgo.service import crear_analisis_riesgo_para_idea
+from permisos.models import ClavePermiso
+from permisos.service import tiene_permiso
 from usuarios.models import MiembroCAB, RolUsuario, Usuario
 from usuarios.dependencies import obtener_usuario_actual
 
@@ -63,11 +65,12 @@ def crear_idea(
     return idea
 
 
-# admin y gerente ven el Panel de administración (todas las ideas del
-# sistema, de solo lectura) — el resto de pantallas admin-only (Usuarios,
-# Clasificación, Criterios IA, Notificaciones) siguen exclusivas de admin
-# vía requerir_admin en sus propios routers, sin relación con esto.
-ROLES_VEN_TODAS_LAS_IDEAS = (RolUsuario.admin, RolUsuario.gerente)
+# Quién ve el Panel de administración (todas las ideas del sistema, de
+# solo lectura) — determinado por el permiso configurable
+# ve_todas_las_ideas (ver permisos/, admin sigue siendo bypass
+# hardcodeado). El resto de pantallas admin-only (Usuarios, Criterios IA,
+# Notificaciones) siguen exclusivas de admin vía requerir_admin en sus
+# propios routers, sin relación con esto.
 
 
 @router.get("", response_model=list[schemas.IdeaOut])
@@ -77,12 +80,10 @@ def listar_ideas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    # Solo admin/gerente pueden ver ideas de otros usuarios (ej. Panel de
-    # administración, que no manda autor_id para traer todas). Cualquier
-    # otro rol queda forzado a su propio autor_id sin importar qué haya
-    # mandado — así nadie puede ver ideas ajenas ni llamando la API
-    # directamente sin pasar por el frontend.
-    if usuario_actual.rol not in ROLES_VEN_TODAS_LAS_IDEAS:
+    # Quien no tiene el permiso ve_todas_las_ideas queda forzado a su
+    # propio autor_id sin importar qué haya mandado — así nadie puede ver
+    # ideas ajenas ni llamando la API directamente sin pasar por el frontend.
+    if not tiene_permiso(db, usuario_actual, ClavePermiso.ve_todas_las_ideas):
         autor_id = usuario_actual.id
 
     query = db.query(Idea)
@@ -115,7 +116,7 @@ def _puede_ver_idea(db: Session, idea: Idea, usuario: Usuario) -> bool:
     a propósito (ver su docstring — el resumen es una herramienta de quien
     revisa, no del autor). Acá el autor SÍ entra: es su propia idea.
     """
-    if usuario.rol in ROLES_VEN_TODAS_LAS_IDEAS:
+    if tiene_permiso(db, usuario, ClavePermiso.ve_todas_las_ideas):
         return True
     if idea.autor_id == usuario.id:
         return True

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FiAlertCircle } from 'react-icons/fi'
-import { listarUsuarios } from '../../usuarios/api'
+import { listarUsuarios, rolesConPermiso } from '../../usuarios/api'
 import type { Usuario } from '../../usuarios/types'
 import { asignarRevisor, revisionesSinAsignar } from '../api'
 import type { RevisionDetalle } from '../types'
@@ -8,6 +8,7 @@ import type { RevisionDetalle } from '../types'
 export default function IdeasSinAsignar() {
   const [revisiones, setRevisiones] = useState<RevisionDetalle[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
+  const [rolesElegibles, setRolesElegibles] = useState<string[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [seleccion, setSeleccion] = useState<Record<number, string>>({})
@@ -23,14 +24,17 @@ export default function IdeasSinAsignar() {
       .finally(() => setCargando(false))
   }, [])
 
+  useEffect(() => {
+    rolesConPermiso('es_revisor_elegible').then(setRolesElegibles)
+  }, [])
+
   function nombreAutor(autorId: number): string {
     return usuarios.find((u) => u.id === autorId)?.nombre ?? '—'
   }
 
-  // encargado_area, gerente y admin estan todos habilitados para revisar.
-  const encargadosActivos = usuarios.filter(
-    (u) => (u.rol === 'encargado_area' || u.rol === 'gerente' || u.rol === 'admin') && u.activo,
-  )
+  // Roles habilitados para revisar (permiso configurable es_revisor_elegible,
+  // ver diseno-pendiente/fase-permisos-por-rol.md.preview).
+  const encargadosActivos = usuarios.filter((u) => rolesElegibles.includes(u.rol) && u.activo)
 
   async function handleAsignar(revision: RevisionDetalle) {
     const revisorId = seleccion[revision.id]

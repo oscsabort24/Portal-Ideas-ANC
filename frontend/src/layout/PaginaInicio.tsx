@@ -6,6 +6,7 @@ import { misRevisiones, revisionesSinAsignar } from '../revision/api'
 import { colaComite } from '../comites/api'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import { useEsMiembroCab } from '../usuarios/hooks/useEsMiembroCab'
+import { useMisPermisos } from '../usuarios/hooks/useMisPermisos'
 import type { Idea } from '../ideas/types'
 import type { RevisionDetalle } from '../revision/types'
 import type { TipoCAB } from '../usuarios/types'
@@ -34,7 +35,10 @@ interface DatosSistema {
   pendientesPorPersona: { nombre: string; cantidad: number; diasMasAntiguo: number }[] | null // solo admin
 }
 
-function useDatosPersona(rol: string): { datos: DatosPersona | null; cargando: boolean } {
+function useDatosPersona(
+  rol: string,
+  esRevisorElegible: boolean,
+): { datos: DatosPersona | null; cargando: boolean } {
   const [datos, setDatos] = useState<DatosPersona | null>(null)
   const [cargando, setCargando] = useState(true)
 
@@ -47,7 +51,8 @@ function useDatosPersona(rol: string): { datos: DatosPersona | null; cargando: b
     // ese dato ya se muestra agregado en el dashboard de sistema, no como
     // "tenés N pendientes" (sería engañoso — no son necesariamente suyas).
     const pedirBorrador = rol === 'colaborador' ? listarIdeas({ estado: 'borrador' }) : Promise.resolve([])
-    const pedirRevisiones = rol === 'encargado_area' || rol === 'gerente' ? misRevisiones() : Promise.resolve([])
+    const pedirRevisiones =
+      rol !== 'admin' && esRevisorElegible ? misRevisiones() : Promise.resolve([])
 
     Promise.all([pedirBorrador, pedirRevisiones])
       .then(([borradores, revisiones]) => {
@@ -67,7 +72,7 @@ function useDatosPersona(rol: string): { datos: DatosPersona | null; cargando: b
     return () => {
       cancelado = true
     }
-  }, [rol])
+  }, [rol, esRevisorElegible])
 
   return { datos, cargando }
 }
@@ -150,11 +155,11 @@ export default function PaginaInicio() {
   const usuarioActual = useUsuarioActual()
   const navigate = useNavigate()
   const esAdmin = usuarioActual.rol === 'admin'
-  const esGerente = usuarioActual.rol === 'gerente'
-  const mostrarDashboardSistema = esAdmin || esGerente
+  const { veTodasLasIdeas, esRevisorElegible } = useMisPermisos()
+  const mostrarDashboardSistema = esAdmin || veTodasLasIdeas
 
   const { tiposCab } = useEsMiembroCab()
-  const { datos: datosPersona } = useDatosPersona(usuarioActual.rol)
+  const { datos: datosPersona } = useDatosPersona(usuarioActual.rol, esRevisorElegible)
   const { datos: datosSistema, cargando: cargandoSistema } = useDatosSistema(
     mostrarDashboardSistema,
     esAdmin,

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from trazabilidad import schemas, service
-from usuarios.dependencies import requerir_admin_o_gerente
+from usuarios.dependencies import requerir_ve_flow_control
 from usuarios.models import Departamento, Usuario
 
 router = APIRouter(prefix="/trazabilidad", tags=["trazabilidad"])
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/trazabilidad", tags=["trazabilidad"])
 @router.get("/flow-control", response_model=list[schemas.FlowControlIdeaOut])
 def flow_control(
     db: Session = Depends(get_db),
-    _usuario_actual: Usuario = Depends(requerir_admin_o_gerente),
+    _usuario_actual: Usuario = Depends(requerir_ve_flow_control),
 ):
     filas = service.construir_flow_control(db)
 

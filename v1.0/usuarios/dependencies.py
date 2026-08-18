@@ -100,11 +100,17 @@ def requerir_admin(
     return usuario_actual
 
 
-def requerir_admin_o_gerente(
+def requerir_ve_flow_control(
     usuario_actual: models.Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
 ) -> models.Usuario:
-    # Mismo criterio de acceso que el Panel de administración
-    # (ideas/router.py:ROLES_VEN_TODAS_LAS_IDEAS) — admin y gerente.
-    if usuario_actual.rol not in (models.RolUsuario.admin, models.RolUsuario.gerente):
-        raise HTTPException(status_code=403, detail="Se requiere rol admin o gerente para esta acción")
+    # Antes era "admin o gerente" hardcodeado; ahora consulta el permiso
+    # configurable ve_flow_control (ver permisos/, admin sigue siendo
+    # bypass hardcodeado dentro de tiene_permiso). Import local para
+    # evitar un ciclo: permisos/service.py también importa de este módulo.
+    from permisos.models import ClavePermiso
+    from permisos.service import tiene_permiso
+
+    if not tiene_permiso(db, usuario_actual, ClavePermiso.ve_flow_control):
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver Flow Control")
     return usuario_actual

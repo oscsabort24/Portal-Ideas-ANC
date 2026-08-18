@@ -20,15 +20,20 @@ from sqlalchemy.orm import Session
 
 from core.claude_client import asignar_revisor_ia
 from ideas.models import Idea, MensajeEntrevista
+from permisos.models import ClavePermiso
+from permisos.service import rol_tiene_permiso
 from revision.models import EstadoRevision, RevisionIdea
 from usuarios.models import Departamento, RolUsuario, Usuario
 
 logger = logging.getLogger(__name__)
 
-# encargado_area, gerente y admin están todos habilitados para revisar
-# ideas — no es exclusivo de encargado_area. Mismo criterio usado en
-# revision/router.py:_validar_revisor_destino (asignar/reasignar manual).
-ROLES_HABILITADOS_REVISOR = (RolUsuario.encargado_area, RolUsuario.gerente, RolUsuario.admin)
+
+def _roles_habilitados_revisor(db: Session) -> list[RolUsuario]:
+    """Roles con el permiso configurable es_revisor_elegible — mismo
+    criterio usado en revision/router.py:_validar_revisor_destino
+    (asignar/reasignar manual). admin siempre incluido vía bypass de
+    rol_tiene_permiso."""
+    return [rol for rol in RolUsuario if rol_tiene_permiso(db, rol, ClavePermiso.es_revisor_elegible)]
 
 
 def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
@@ -46,7 +51,7 @@ def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | Non
         db.query(Usuario)
         .filter(
             Usuario.departamento_id == departamento_id,
-            Usuario.rol.in_(ROLES_HABILITADOS_REVISOR),
+            Usuario.rol.in_(_roles_habilitados_revisor(db)),
             Usuario.activo == True,  # noqa: E712
         )
         .first()

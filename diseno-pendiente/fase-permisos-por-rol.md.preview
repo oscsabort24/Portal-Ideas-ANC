@@ -1,0 +1,318 @@
+# Diseño pendiente — Módulo de permisos por rol configurable
+
+Este documento **no es código activo**, ni las migraciones que referencia.
+Mismo formato que los `.preview` anteriores.
+
+## Estado: las 6 decisiones abiertas quedaron resueltas
+
+1. **`admin` hardcodeado, no configurable** — confirmado, sección 2.3 sin
+   cambios.
+2. **Rendimiento**: caché en memoria de `permisos_rol` (tabla mínima,
+   ~4 filas hoy). Estrategia de invalidación: **invalidar el caché
+   completo en cada guardado** (`PUT`/`PATCH` de permisos) — no hace
+   falta invalidación selectiva por fila dado el volumen de escritura
+   bajísimo (un admin editando configuración, no una ruta de alta
+   frecuencia). Se implementa como un `dict` en memoria del proceso
+   cargado al arrancar y recargado por completo cuando el endpoint de
+   guardado hace commit exitoso.
+3. **Misma pantalla, pestañas separadas**: `permisos_documentos_rol` y
+   `permisos_rol` viven ambos bajo la vista de configuración de Roles,
+   en pestañas independientes (mismo patrón de pestañas que Criterios de
+   IA) — no se fusionan en una tabla ni vista única.
+4. **Alcance confirmado**: solo migran los checks puramente-por-rol. Ver
+   la tabla de verificación completa más abajo (sección 1.1) con
+   MIGRA/NO MIGRA fila por fila y el motivo de cada uno.
+5. **Modelo confirmado**: `permisos_rol` como grilla rol × `ClavePermiso`,
+   whitelist, N:M real (un permiso puede estar activo para varios roles
+   a la vez) — sin cambios respecto a la sección 2.2 original.
+6. **Rol "gerente"**: no se renombra nada. Si el CAB necesita a futuro un
+   permiso que hoy solo tiene `gerente`, se resuelve dándole ese permiso
+   también a través de `MiembroCAB` (relacional), no modificando el rol.
+
+**Ajuste al modelo de datos** (detalle menor, no una de las 6 decisiones
+pero necesario para la migración): `actualizado_por_id` se vuelve
+**nullable** — `NULL` significa "fila de seed, todavía sin editar por una
+persona", mismo criterio que ya usan `actualizado_por_id`/`actualizado_en`
+en `DocumentoCriterio` hoy. Ver el modelo corregido en la sección 2.2.
+
+---
+
+## 1. Inventario completo de checks de autorización hardcodeados
+
+Búsqueda exhaustiva en `v1.0/` (`RolUsuario.`, `usuario.rol`, `.rol ==`,
+`.rol in`, `.rol.in_`) y en `frontend/src` (`esAdmin`, `esGerente`,
+`esEncargado`, comparaciones de `rol`). Cada fila: qué controla, roles
+aplicados hoy, si es config o hardcode.
+
+### Backend
+
+| # | Ubicación | Qué controla | Roles hoy | Tipo |
+|---|---|---|---|---|
+| 1 | `usuarios/dependencies.py:95-100` `requerir_admin` | Gate genérico admin-only, usado por `criterios/`, `clasificacion/router.py`, `usuarios/router.py` (CRUD depto/puesto/usuario), `revision/router.py:asignar`/`sin-asignar` | `admin` | Hardcode |
+| 2 | `usuarios/dependencies.py:103-109` `requerir_admin_o_gerente` | Gate de `/trazabilidad/flow-control` y mismo criterio que #3 | `admin`, `gerente` | Hardcode |
+| 3 | `ideas/router.py:70` `ROLES_VEN_TODAS_LAS_IDEAS` | Panel de administración (listar todas las ideas, ver detalle de cualquiera) — `listar_ideas:85`, `_puede_ver_idea:118` | `admin`, `gerente` | Hardcode |
+| 4 | `revision/service.py:31` + `revision/router.py:16-20` `ROLES_HABILITADOS_REVISOR` (duplicado en 2 archivos) | Quién puede ser revisor: elegible para asignación automática (hoy) y destino válido de asignación/reasignación manual (`_validar_revisor_destino`) | `encargado_area`, `gerente`, `admin` | Hardcode |
+| 5 | `revision/router.py:47` `mis_revisiones` | Admin ve TODAS las revisiones pendientes, no solo las propias | `admin` (atajo) | Hardcode |
+| 6 | `revision/router.py:91-99` `_validar_revisor_asignado` | Atajo de admin para actuar sobre revisión de otra persona (aprobar/pedir-cambios/reasignar) | `admin` (atajo) + revisor asignado (no por rol) | Hardcode |
+| 7 | `revision/router.py:202-206` `historial_retroalimentacion` | Acceso al historial: admin, revisor asignado, o autor | `admin` (atajo) + no-rol | Hardcode |
+| 8 | `comites/router.py:16-31` `_validar_acceso_comite` | Acceso a cola/aprobar/rechazar/RICE del CAB | `admin` (atajo) + `MiembroCAB` (tabla, no rol) | Mixto — ya usa tabla para no-admin |
+| 9 | `documentos/router.py:33-64` `_validar_acceso` | Lectura de documentos generados (listar/descargar/preview/pdf/zip) | `admin` (siempre) + `encargado_area` (si es el revisor asignado) + autor + miembro CAB | Hardcode + no-rol |
+| 10 | `documentos/router.py:67-103` `_puede_generar` | Generar/regenerar documentos | `admin` (siempre) + `encargado_area` (si es revisor asignado) + autor | Hardcode + no-rol |
+| 11 | `documentos/router.py:106-117` `_tipos_permitidos_para_rol` + tabla `permisos_documentos_rol` | Qué TIPOS de documento puede generar cada rol (charter, bpmn, onepager, raci, bmc, business_case) | `colaborador`, `encargado_area`, `gerente` configurables; `admin` implícito (todos, sin fila) | **Ya es configurable** (`ConfiguracionDocumentosView` → `PATCH /documentos/permisos-rol`) |
+| 12 | `ideas/router.py:358-364` `_puede_ver_resumen_o_chatear` (nombre aproximado) | Acceso al resumen/mini-chat de una idea — a propósito el AUTOR no tiene acceso | `admin` (atajo) + revisor asignado (no por rol) | Hardcode + no-rol, decisión de negocio explícita |
+| 13 | `usuarios/router.py:84` `obtener_usuario` (corregido esta sesión) | Lectura de perfil de otro usuario | `admin` (atajo) + dueño del perfil | Hardcode |
+| 14 | `usuarios/router.py:111` | Distingue admin en la respuesta de alta/onboarding | `admin` | Hardcode |
+| 15 | `clasificacion/router.py:20` (comentario) | Corrección manual de clasificación — deliberadamente NO delegable a `encargado_area`/`gerente` | `admin` únicamente | Hardcode, decisión de negocio explícita |
+| 16 | `scripts/resetear_pin_emergencia.py:47` | Script de emergencia, exige admin | `admin` | Hardcode (fuera de HTTP, no aplica a este diseño) |
+| 17 | `ideas/router.py:154-166` (`_validar_autor_o_admin`, agregado esta sesión) | Escribir/enviar una idea | `admin` (atajo) + autor | Hardcode |
+
+### Frontend (solo gating de UI — el backend es la autoridad real)
+
+| # | Ubicación | Qué controla | Roles |
+|---|---|---|---|
+| 18 | `Sidebar.tsx:34-36,53,86,95,105,136` | Visibilidad de secciones: Trazabilidad (`esAdmin\|\|esGerente`), Revisión (`puedeRevisar` = admin/encargado_area/gerente), CAB (`esAdmin\|\|esMiembroCab`), Usuarios/Criterios (`esAdmin`) | admin, gerente, encargado_area, MiembroCAB (tabla) |
+| 19 | `PaginaInicio.tsx:49-50,152-154` | Qué se pre-carga en el dashboard (borradores si colaborador, revisiones si encargado_area/gerente, dashboard sistema si admin/gerente) | colaborador, encargado_area, gerente, admin |
+| 20 | `MisRevisiones.tsx:45`, `IdeasSinAsignar.tsx:32` | Filtra el selector de "a quién reasignar" a roles elegibles como revisor | encargado_area, gerente, admin (espejo de #4) |
+| 21 | `RevisionView.tsx:7`, `ColaComite.tsx:22` | `esAdmin` como atajo de UI (mismo patrón que el backend) | admin |
+| 22 | `ListaDepartamentos.tsx`, `ListaPersonas.tsx`, `ListaMiembrosCAB.tsx`, `ListaPuestos.tsx` | Botones de editar/eliminar visibles solo a admin | admin |
+
+### 1.1 Verificación fila por fila — MIGRA / NO MIGRA + default propuesto
+
+| # | Check | MIGRA | Permiso / default | Motivo |
+|---|---|---|---|---|
+| 1 | `requerir_admin` (genérico — `criterios/`, `usuarios/router.py` CRUD depto/puesto/usuario, `revision/router.py:asignar`/`sin-asignar`) | **NO** | — (sigue como `requerir_admin()`) | Admin-only sin ningún rol alternativo hoy, y es una dependencia genérica reusada por acciones no relacionadas entre sí — no hay una sola "capacidad" que catalogar sin inventar granularidad nueva no pedida |
+| 2 | `requerir_admin_o_gerente` | **SÍ** | `ve_flow_control`: `gerente=true` | Pure-rol, sin componente relacional |
+| 3 | `ROLES_VEN_TODAS_LAS_IDEAS` | **SÍ** | `ve_todas_las_ideas`: `gerente=true` | Pure-rol; el filtro relacional (ver solo lo propio) es el comportamiento SIN el permiso, no algo que se migre aparte |
+| 4 | `ROLES_HABILITADOS_REVISOR` (duplicado en 2 archivos) | **SÍ** | `es_revisor_elegible`: `encargado_area=true`, `gerente=true` | Pure-rol, lista de elegibilidad sin componente relacional |
+| 5 | `mis_revisiones` atajo admin (ver TODAS las pendientes) | **NO** | — | Confirmé el código exacto: el atajo es literal `!= admin` (NO `not in (admin, gerente)`) — `gerente` NO tiene este atajo hoy, es admin-only sin alternativa, igual que #1 |
+| 6 | `_validar_revisor_asignado` atajo admin | **NO** | — | Relacional (`revisor_id` match) + admin-only sin alternativa |
+| 7 | `historial_retroalimentacion` (admin, revisor, autor) | **NO** | — | Relacional, admin es solo un atajo sin alternativa de rol |
+| 8 | `_validar_acceso_comite` (admin + `MiembroCAB`) | **NO** | — | Relacional (tabla de membresía, no rol) |
+| 9 | `documentos._validar_acceso` | **NO** | — | Relacional (autor / revisor asignado / miembro CAB) |
+| 10 | `documentos._puede_generar` | **NO** | — | Relacional, mismo criterio que #9 |
+| 11 | `permisos_documentos_rol` | **N/A** | Ya configurable, tabla separada | No se toca, no se fusiona |
+| 12 | Acceso a resumen/mini-chat de idea (admin, revisor relacional) | **NO** | — | Relacional + admin-only sin alternativa |
+| 13 | `GET /usuarios/{id}` (admin, dueño) | **NO** | — | Relacional + admin-only sin alternativa |
+| 14 | `usuarios/router.py:111` (flag informativo `es_admin` en onboarding) | **NO** | — | No es un gate de autorización, es un dato informativo de la respuesta |
+| 15 | Corrección de clasificación, admin-only exclusivo | **SÍ** | `corrige_clasificacion`: sin filas para nadie (solo admin, hardcode) | Pure-rol (no relacional) y es una decisión de negocio explícita y nombrada — se cataloga para que sea configurable a futuro SIN otra migración, aunque hoy nadie más lo tenga |
+| 16 | `scripts/resetear_pin_emergencia.py` | **NO** | — | Script fuera de HTTP, fuera de alcance de este diseño |
+| 17 | `_validar_autor_o_admin` (enviar_mensaje/enviar_idea) | **NO** | — | Relacional (autor) + admin-only sin alternativa |
+| 18 | Frontend `Sidebar.tsx` — sección Trazabilidad (`esAdmin\|\|esGerente`) | **SÍ** (consume #2) | Igual que `ve_flow_control` | Refleja el mismo permiso del backend, no es un permiso nuevo |
+| 18b | Frontend `Sidebar.tsx` — `puedeRevisar` (admin/encargado_area/gerente) | **SÍ** (consume #4) | Igual que `es_revisor_elegible` | Idem |
+| 18c | Frontend `Sidebar.tsx` — sección CAB (`esAdmin\|\|esMiembroCab`) | **NO** | — | Relacional (tabla `MiembroCAB`), no rol |
+| 18d | Frontend `Sidebar.tsx` — secciones Usuarios/Criterios (`esAdmin`) | **NO** | — | Admin-only sin alternativa, igual que #1 |
+| 19 | Frontend `PaginaInicio.tsx` — `mostrarDashboardSistema` (`esAdmin\|\|esGerente`) | **SÍ** (consume #3) | Igual que `ve_todas_las_ideas` | Refleja el mismo permiso |
+| 19b | Frontend `PaginaInicio.tsx` — precarga "mis revisiones" si `encargado_area`/`gerente` | **SÍ** (consume #4) | Igual que `es_revisor_elegible` | Idem |
+| 19c | Frontend `PaginaInicio.tsx` — precarga borradores si `colaborador` | **NO** | — | No es un permiso, es selección de contenido del dashboard según rol, no una restricción de acceso |
+| 20 | Frontend `MisRevisiones.tsx`/`IdeasSinAsignar.tsx` — selector de revisor elegible | **SÍ** (consume #4) | Igual que `es_revisor_elegible` | Espejo directo del backend, no un permiso independiente |
+| 21 | Frontend `RevisionView.tsx`/`ColaComite.tsx` — atajos `esAdmin` de UI | **NO** | — | Admin-only sin alternativa |
+| 22 | Frontend listas (`ListaDepartamentos`/`ListaPersonas`/`ListaMiembrosCAB`/`ListaPuestos`) — botones editar/eliminar `esAdmin` | **NO** | — | Admin-only sin alternativa, igual que #1 |
+
+**Total de permisos nuevos en el catálogo: 4** (`ve_todas_las_ideas`,
+`ve_flow_control`, `es_revisor_elegible`, `corrige_clasificacion`) — el
+resto de filas migradas (18, 18b, 19, 19b, 20) no son permisos nuevos,
+son el mismo permiso consumido en un segundo lugar (frontend reflejando
+lo que el backend ya decide). El frontend necesita una forma de leer el
+valor efectivo de estos 4 permisos para el usuario actual — hoy no existe
+ese endpoint; se necesitaría algo como `GET /me/permisos` que devuelva
+los booleanos resueltos (no la tabla cruda `permisos_rol`, que es admin-only)
+para que el sidebar pueda decidir qué mostrar sin que cada componente
+tenga que conocer la tabla completa. **No incluido en el alcance de este
+documento** — es un endpoint de lectura derivado, se diseña junto con la
+implementación del backend, no antes.
+
+**Nota importante para el diseño de abajo**: varios de estos checks NO son
+puramente "por rol" — mezclan rol con relación (ser el autor, ser el
+revisor asignado, ser miembro de una tabla como `MiembroCAB`). Un módulo
+de permisos por rol **no reemplaza esa parte relacional** — filas #5, #6,
+#7, #9, #10, #12, #13, #17 seguirían necesitando su chequeo de relación
+además de (o en vez de) un permiso de rol. El módulo de permisos solo
+puede absorber la parte que hoy es "¿este ROL puede hacer X en general?",
+no "¿esta PERSONA puede hacer X sobre ESTA idea/revisión particular?".
+
+---
+
+## 2. Modelo de datos propuesto
+
+### 2.1 Por rol, no por usuario
+
+Todos los checks del inventario (excepto los ya cubiertos por
+`permisos_documentos_rol`, que ya es por-rol) son evaluados sobre
+`usuario.rol` — ninguno hoy distingue entre dos personas con el mismo rol.
+No encontré ningún caso que pida "el colaborador X sí, el colaborador Y
+no" — proponer permisos por usuario individual sería construir para un
+caso que no existe todavía. Si en el futuro hace falta una excepción
+puntual por persona, se puede agregar una tabla `usuario_permiso` que
+sobrescriba a `rol_permiso` para esa persona — diseño abierto a extender,
+no incluido ahora por no inventar alcance no pedido.
+
+### 2.2 Catálogo de permisos + tabla puente
+
+```python
+# permisos/models.py (módulo nuevo)
+
+class ClavePermiso(str, enum.Enum):
+    """Un permiso por cada check de rol puro del inventario (columna
+    'Roles hoy' de la tabla de arriba, excluyendo los que son atajos de
+    admin sin alternativa real — ver 2.3 sobre por qué admin no es
+    configurable)."""
+
+    ve_todas_las_ideas = "ve_todas_las_ideas"                  # #2, #3
+    es_revisor_elegible = "es_revisor_elegible"                # #4
+    ve_flow_control = "ve_flow_control"                        # #2
+    corrige_clasificacion = "corrige_clasificacion"            # #15
+    # genera_documento_* NO entra acá — permisos_documentos_rol ya cubre
+    # ese caso con más granularidad (por tipo de documento) de lo que este
+    # catálogo necesitaría replicar. Ver 2.4.
+
+
+class PermisoRol(Base):
+    """Tabla puente rol -> permiso. Ausencia de fila = permiso denegado
+    (whitelist, no blacklist) — mismo criterio que permisos_documentos_rol
+    ya usa hoy (ausencia de fila para admin = "tiene todo", ver 2.3 para
+    por qué admin es la única excepción a esta regla)."""
+
+    __tablename__ = "permisos_rol"
+    __table_args__ = (
+        UniqueConstraint("rol", "clave_permiso", name="uq_permiso_rol_clave"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rol: Mapped[RolUsuario] = mapped_column(Enum(RolUsuario, name="rol_usuario"), nullable=False)
+    clave_permiso: Mapped[ClavePermiso] = mapped_column(
+        Enum(ClavePermiso, name="clave_permiso"), nullable=False
+    )
+    permitido: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # NULL = fila de seed, nunca editada por una persona todavía — mismo
+    # criterio que DocumentoCriterio.actualizado_por_id ya usa hoy.
+    actualizado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+```
+
+### 2.3 Por qué `admin` no es configurable
+
+En **todos** los 17 checks del inventario backend, `admin` aparece como
+atajo universal — nunca como "admin necesita que alguien le dé el
+permiso X". Hacer que `admin` pase por esta tabla introduciría un riesgo
+real y sin beneficio: un admin podría, por error o mala intención de otro
+admin, quitarse a sí mismo (o a todos los admins) acceso al panel que
+sirve justamente para arreglar ese tipo de error — un bloqueo
+irrecuperable sin acceso directo a la base de datos. Propuesta: `admin`
+sigue siendo hardcode ("admin siempre puede todo"), igual que hoy hace
+`permisos_documentos_rol` (`documentos/router.py:114-115`, "admin no
+tiene filas a propósito"). Solo `colaborador`, `encargado_area`, `gerente`
+pasan por la tabla — mismo criterio que `ROLES_CONFIGURABLES` ya usa en
+`permisos_documentos_rol` (`3f8b6d2a91ec...py:23`).
+
+### 2.4 `permisos_documentos_rol` no se toca
+
+Ya es una tabla de permisos configurable, específica a tipos de documento.
+Este diseño no la reemplaza ni la generaliza — sería forzar una
+generalización que no aporta nada (los tipos de documento no son
+booleanos simples, son un catálogo propio). El nuevo `permisos_rol`
+convive con `permisos_documentos_rol` como dos tablas de permisos con
+distinto grano, ambas bajo el mismo paraguas conceptual de "permisos
+configurables por rol", sin fusionarlas.
+
+### 2.5 Defaults — deben replicar el comportamiento actual exacto
+
+Seed obligatorio en la migración (ver sección de migraciones), para que
+activar este módulo no cambie nada el día que se aplica:
+
+| rol | clave_permiso | permitido |
+|---|---|---|
+| `gerente` | `ve_todas_las_ideas` | `true` |
+| `gerente` | `ve_flow_control` | `true` |
+| `gerente` | `es_revisor_elegible` | `true` |
+| `encargado_area` | `es_revisor_elegible` | `true` |
+| `colaborador` | (ninguna fila — sin permisos especiales, igual que hoy) | — |
+
+`corrige_clasificacion` no tiene ninguna fila para ningún rol
+configurable — hoy es exclusivo de admin sin excepción (`clasificacion/router.py:20`,
+decisión de negocio explícita), así que el catálogo lo incluye por
+completitud pero el seed no le da ese permiso a nadie más. Si se
+habilitara para `gerente` en el futuro, sería cambiar una fila, no código.
+
+### 2.6 Cómo se leen estos permisos en el código
+
+```python
+# permisos/service.py
+
+def tiene_permiso(db: Session, usuario: Usuario, clave: ClavePermiso) -> bool:
+    if usuario.rol == RolUsuario.admin:
+        return True
+    return (
+        db.query(PermisoRol)
+        .filter_by(rol=usuario.rol, clave_permiso=clave, permitido=True)
+        .first()
+        is not None
+    )
+```
+
+Y los checks migran, por ejemplo:
+```python
+# ideas/router.py — antes
+ROLES_VEN_TODAS_LAS_IDEAS = (RolUsuario.admin, RolUsuario.gerente)
+if usuario_actual.rol not in ROLES_VEN_TODAS_LAS_IDEAS: ...
+
+# después
+if not tiene_permiso(db, usuario_actual, ClavePermiso.ve_todas_las_ideas): ...
+```
+
+**Importante**: esto agrega una consulta a la base de datos en cada
+request que hoy es una comparación en memoria (`in (admin, gerente)`).
+Para los checks de alta frecuencia (`_puede_ver_idea`, llamado en cada
+`GET /ideas/{id}`), conviene cachear `PermisoRol` en memoria del proceso
+(4 roles × ~4 permisos = tabla minúscula, se puede cargar entera al
+arrancar y refrescar con un TTL corto o invalidar al editar) en vez de
+consultarla en cada request — **decisión de implementación a definir**,
+no bloquea el diseño pero sí el rendimiento si se omite.
+
+---
+
+## 3. Pantalla de administración
+
+**Se extiende `RolesView.tsx`, no se crea una pantalla nueva.** Hoy ya
+está en el lugar correcto del sidebar (bajo "Usuarios", visible solo a
+admin) y ya tiene la estructura de "una fila por rol con su descripción"
+— es el layout correcto, solo le falta ser editable. Crear una pantalla
+aparte duplicaría navegación para el mismo concepto ("qué puede hacer
+cada rol") que el usuario ya espera encontrar en un solo lugar.
+
+Cambios propuestos a `RolesView.tsx`:
+- Cada fila de rol (`colaborador`, `encargado_area`, `gerente`) gana un
+  bloque de checkboxes, uno por `ClavePermiso`, con su estado actual
+  (`GET /permisos-rol`) y guardado inmediato o por lote (`PATCH
+  /permisos-rol`, mismo patrón que `PATCH /documentos/permisos-rol` ya
+  usa `ConfiguracionDocumentosView` — reusar ese patrón de UI en vez de
+  inventar uno nuevo).
+- `admin` se muestra en la tabla igual que hoy (de solo lectura, con nota
+  "siempre tiene acceso completo — no configurable", explicando el
+  porqué de 2.3 en la propia UI para que no parezca un descuido).
+- La sección de `permisos_documentos_rol` (si `ConfiguracionDocumentosView`
+  vive en otra pantalla) puede quedar donde está, o moverse a una pestaña
+  dentro de la misma vista de Roles para que "todo lo de permisos" esté
+  en un solo lugar — **decisión de UX abierta, no bloquea el modelo de
+  datos**.
+
+---
+
+## Decisiones — todas resueltas (ver "Estado" al inicio del documento)
+
+Las 6 decisiones que estaban abiertas quedaron resueltas y están
+documentadas en la sección "Estado" al inicio de este archivo. La
+migración correspondiente ya existe como
+`diseno-pendiente/4d81f6c93a52_permisos_rol.py.preview` — sin aplicar,
+pendiente de aprobación tras revisar la tabla de verificación (sección
+1.1) fila por fila.
+
+**Único punto que queda genuinamente abierto** (no era una de las 6, es
+un descubrimiento de la verificación fila por fila): el frontend necesita
+un endpoint de lectura nuevo (`GET /me/permisos` o similar) para poder
+consumir estos permisos sin exponer la tabla cruda de configuración a
+usuarios no-admin — no bloquea la migración de datos, pero sí bloquea
+que el sidebar pueda reflejar los permisos configurables en vez de los
+roles hardcodeados. Se diseña en la fase de implementación, no en esta.

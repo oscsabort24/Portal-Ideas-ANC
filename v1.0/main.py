@@ -10,6 +10,7 @@ from criterios.router import router as criterios_router
 from documentos.router import router as documentos_router
 from ideas.router import router as ideas_router
 from notificaciones.router import router as notificaciones_router
+from permisos.router import router as permisos_router, router_publico as permisos_publico_router
 from revision.router import router as revision_router
 from trazabilidad.router import router as trazabilidad_router
 from usuarios.router import router as usuarios_router
@@ -58,6 +59,8 @@ app.include_router(clasificacion_router)
 app.include_router(comites_router)
 app.include_router(notificaciones_router)
 app.include_router(documentos_router)
+app.include_router(permisos_router)
+app.include_router(permisos_publico_router)
 app.include_router(trazabilidad_router)
 
 if settings.entorno == "development":

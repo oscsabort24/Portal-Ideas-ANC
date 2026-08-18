@@ -8,22 +8,25 @@ from clasificacion.models import ClasificacionIdea, EstadoClasificacion
 from comites.models import ComiteIdea, EstadoComite
 from comites.service import crear_comite_idea_para_idea
 from core.database import get_db
+from permisos.models import ClavePermiso
+from permisos.service import requerir_permiso
 from usuarios import models as usuarios_models
-from usuarios.dependencies import requerir_admin
 
 router = APIRouter(prefix="/clasificacion", tags=["clasificacion"])
 
-# Ambos endpoints usan requerir_admin (no un patrón de "admin + rol funcional
-# específico" como en comites/revision/ideas) — decisión intencional
-# confirmada: clasificar una idea (Innovación vs Transformación Digital) es
-# una corrección de negocio reservada a admin, no delegable a encargado_area
-# o gerente. No es una asimetría accidental respecto a los demás módulos.
+# Ambos endpoints usan el permiso configurable corrige_clasificacion (no un
+# patrón de "admin + rol funcional específico" como en comites/revision/ideas)
+# — decisión intencional confirmada: clasificar una idea (Innovación vs
+# Transformación Digital) es una corrección de negocio reservada a admin por
+# defecto (seed sin filas para otros roles), no delegable a encargado_area o
+# gerente salvo que un admin active ese permiso desde la pantalla de Roles.
+_requerir_corrige_clasificacion = requerir_permiso(ClavePermiso.corrige_clasificacion)
 
 
 @router.get("/pendientes", response_model=list[schemas.ClasificacionDetalleOut])
 def listar_pendientes(
     db: Session = Depends(get_db),
-    _admin: usuarios_models.Usuario = Depends(requerir_admin),
+    _usuario_actual: usuarios_models.Usuario = Depends(_requerir_corrige_clasificacion),
 ):
     return (
         db.query(ClasificacionIdea)
@@ -37,7 +40,7 @@ def clasificar(
     idea_id: int,
     payload: schemas.ClasificarRequest,
     db: Session = Depends(get_db),
-    admin: usuarios_models.Usuario = Depends(requerir_admin),
+    usuario_actual: usuarios_models.Usuario = Depends(_requerir_corrige_clasificacion),
 ):
     clasificacion = db.query(ClasificacionIdea).filter_by(idea_id=idea_id).first()
     if not clasificacion:
@@ -58,7 +61,7 @@ def clasificar(
 
     clasificacion.clasificacion = payload.clasificacion
     clasificacion.estado = EstadoClasificacion.clasificada
-    clasificacion.clasificado_por_id = admin.id
+    clasificacion.clasificado_por_id = usuario_actual.id
     clasificacion.fecha_clasificacion = datetime.now(timezone.utc)
 
     if comite:

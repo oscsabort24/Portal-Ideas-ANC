@@ -15,6 +15,8 @@ El código real (`v1.0/usuarios/models.py`, `v1.0/revision/*`,
 | `fase3-4-modelos-router-schemas.diff.preview` | Diff unificado contra `HEAD` de los 6 archivos que tocarían las Fases 3 y 4 |
 | `b4d17c9e5a20_responsables_area_y_origen_asignacion.py.preview` | Migración de Fase 3 |
 | `c9f3e820d114_historial_idea_y_reasignacion_con_aceptacion.py.preview` | Migración de Fase 4 |
+| `fase-permisos-por-rol.md.preview` | Inventario completo de checks de autorización hardcodeados por rol + diseño de tabla `permisos_rol` configurable. Las 6 decisiones abiertas ya quedaron resueltas — incluye tabla de verificación fila por fila (22 checks) |
+| `4d81f6c93a52_permisos_rol.py.preview` | Migración de la tabla `permisos_rol` + seed exacto (4 filas) que replica el comportamiento actual sin cambios |
 
 ### Advertencia sobre el diff
 

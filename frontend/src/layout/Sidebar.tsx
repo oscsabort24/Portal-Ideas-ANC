@@ -19,6 +19,7 @@ import {
 } from 'react-icons/fi'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import { useEsMiembroCab } from '../usuarios/hooks/useEsMiembroCab'
+import { useMisPermisos } from '../usuarios/hooks/useMisPermisos'
 
 const RUTAS_ORGANIZACION = [
   '/organizacion/roles',
@@ -32,8 +33,8 @@ const RUTAS_ORGANIZACION = [
 export default function Sidebar() {
   const usuarioActual = useUsuarioActual()
   const esAdmin = usuarioActual.rol === 'admin'
-  const esGerente = usuarioActual.rol === 'gerente'
-  const puedeRevisar = esAdmin || usuarioActual.rol === 'encargado_area' || esGerente
+  const { veFlowControl, esRevisorElegible } = useMisPermisos()
+  const puedeRevisar = esAdmin || esRevisorElegible
   const { esMiembro: esMiembroCab } = useEsMiembroCab()
   const location = useLocation()
 
@@ -50,7 +51,7 @@ export default function Sidebar() {
         </NavLink>
       </div>
 
-      {(esAdmin || esGerente) && (
+      {(esAdmin || veFlowControl) && (
         <div className="sidebar-section">
           <div className="sidebar-section-title">Trazabilidad</div>
           <NavLink to="/flow-control" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>

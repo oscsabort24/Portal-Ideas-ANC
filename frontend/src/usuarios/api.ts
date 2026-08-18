@@ -1,8 +1,10 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from '../core/api'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../core/api'
 import type {
   Departamento,
   MiembroCAB,
   MiembroCABDetalle,
+  PermisoRol,
+  PermisoRolActualizar,
   Puesto,
   Usuario,
   UsuarioCreate,
@@ -89,4 +91,23 @@ export function agregarMiembroCab(payload: {
 
 export function quitarMiembroCab(id: number): Promise<void> {
   return apiDelete(`/usuarios/cab/${id}`)
+}
+
+/** Permisos efectivos (resueltos) del usuario actual — no la tabla cruda. */
+export function misPermisos(): Promise<Record<string, boolean>> {
+  return apiGet<Record<string, boolean>>('/me/permisos')
+}
+
+/** Qué roles tienen un permiso dado — usado para armar selectores (ej. quién
+ * puede ser revisor) sin hardcodear la lista de roles en el cliente. */
+export function rolesConPermiso(clavePermiso: string): Promise<string[]> {
+  return apiGet<string[]>(`/permisos-rol/roles/${clavePermiso}`)
+}
+
+export function listarPermisosRol(): Promise<PermisoRol[]> {
+  return apiGet<PermisoRol[]>('/permisos-rol')
+}
+
+export function guardarPermisosRol(permisos: PermisoRolActualizar[]): Promise<PermisoRol[]> {
+  return apiPut<PermisoRol[]>('/permisos-rol', { permisos })
 }

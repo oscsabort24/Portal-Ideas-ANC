@@ -7,6 +7,8 @@ from clasificacion.service import crear_clasificacion_para_idea
 from core.database import get_db
 from ideas.models import MensajeEntrevista, RolMensaje
 from ideas.service import siguiente_orden
+from permisos.models import ClavePermiso
+from permisos.service import rol_tiene_permiso
 from revision import schemas
 from revision.models import EstadoRevision, HistorialReasignacion, HistorialRetroalimentacion, RevisionIdea
 from usuarios import models as usuarios_models
@@ -14,18 +16,12 @@ from usuarios.dependencies import obtener_usuario_actual, requerir_admin
 
 router = APIRouter(prefix="/revision", tags=["revision"])
 
-ROLES_HABILITADOS_REVISOR = (
-    usuarios_models.RolUsuario.encargado_area,
-    usuarios_models.RolUsuario.gerente,
-    usuarios_models.RolUsuario.admin,
-)
-
 
 def _validar_revisor_destino(db: Session, revisor_id: int) -> usuarios_models.Usuario:
     revisor = db.get(usuarios_models.Usuario, revisor_id)
     if not revisor:
         raise HTTPException(status_code=404, detail="El usuario destino no existe")
-    if revisor.rol not in ROLES_HABILITADOS_REVISOR:
+    if not rol_tiene_permiso(db, revisor.rol, ClavePermiso.es_revisor_elegible):
         raise HTTPException(
             status_code=400,
             detail=f"'{revisor.nombre}' no tiene un rol habilitado para revisar",
