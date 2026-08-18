@@ -75,72 +75,111 @@ docker compose down          # detiene el contenedor, conserva los datos
 docker compose down -v       # detiene y borra también el volumen de datos
 ```
 
+## Autenticación — estado real
+
+El proyecto tiene **dos caminos de identidad activos en paralelo**, y la
+diferencia importa para cualquiera que despliegue o audite esto:
+
+### 1. Login con Microsoft Entra ID (MSAL) — implementado y activo
+
+Ya no es andamiaje pendiente: hoy funciona de punta a punta contra el
+tenant real de Grupo ANC.
+
+- **Frontend**: `frontend/.env` ya tiene credenciales reales cargadas
+  (`VITE_AZURE_CLIENT_ID`, `VITE_AZURE_TENANT_ID`). Con ambas presentes,
+  `azureAdConfigurado` (`frontend/src/core/authConfig.ts`) es `true`, el
+  botón "Iniciar sesión con Microsoft" aparece en el header
+  (`LoginScreen.tsx`), y cada request al backend manda
+  `Authorization: Bearer <token>` obtenido vía `acquireTokenSilent`
+  (`frontend/src/core/api.ts`), en vez de la cabecera simulada.
+- **Backend**: `core/auth.py` valida el token de verdad — **no** es un
+  stub. Descarga y cachea las claves públicas (JWKS) del tenant, verifica
+  la firma RS256, el `audience` (`settings.azure_api_audience`) y el
+  `issuer` contra el tenant configurado (`settings.azure_tenant_id`), y
+  `jose` valida la expiración. La función `validar_token_azure` tiene
+  implementación completa; no lanza `NotImplementedError`.
+- Estos valores (`azure_tenant_id`, `azure_api_audience`) son constantes
+  de la app registrada en Azure AD, con default ya cargado en
+  `core/config.py` — no dependen de credenciales por-ambiente adicionales
+  para que la validación funcione.
+
+### 2. Fallback `X-Usuario-Id` — decisión consciente, no un bug
+
+`usuarios/dependencies.py:obtener_identidad_autenticada` acepta un segundo
+camino: si la request no trae `Authorization: Bearer`, confía en el header
+`X-Usuario-Id` tal cual, sin firma ni verificación — solo hace
+`db.get(Usuario, x_usuario_id)`.
+
+**Esto está activo a propósito**, para que compañeros de prueba puedan
+entrar sin depender de que IT complete el alta de su cuenta en Azure AD o
+de que tengan acceso al tenant todavía. El equipo decidió mantenerlo así
+**hasta nueva orden** — no es una brecha accidental, es un trade-off
+tomado conscientemente entre fricción de testing y superficie de ataque.
+
+Puntos a tener presentes mientras esta decisión siga en pie:
+- **No está gateado por `ENTORNO`** (a diferencia de `/auth/dev-login`,
+  ver abajo) — la rama `X-Usuario-Id` de `obtener_identidad_autenticada`
+  es alcanzable sin importar el valor de `settings.entorno`. Quien tenga
+  la URL del backend puede autenticarse como cualquier `usuario_id` que
+  exista en la base, sin credenciales reales, mientras este camino siga
+  abierto.
+- Todos los checks de rol (`requerir_admin`, `_validar_acceso_comite`,
+  `_puede_ver_idea`, etc.) confían en la identidad que devuelva esta
+  función — si `X-Usuario-Id` queda abierto, esos checks siguen
+  funcionando correctamente pero sobre una identidad no verificada.
+- Cuando se decida cerrar este camino en producción, el cambio es
+  puntual: condicionar esa rama de `obtener_identidad_autenticada` a
+  `settings.entorno == "development"` (mismo patrón que ya usa
+  `/auth/dev-login`), no un rediseño.
+
+### `/auth/dev-login` — sí está gateado por entorno
+
+Aparte de `X-Usuario-Id`, existe `POST /auth/dev-login`
+(`core/dev_router.py`) — accesos rápidos por correo para previsualizar
+cada rol sin pasar por Azure AD. Este router **solo se registra si
+`settings.entorno == "development"`** (ver `main.py`), con default
+`"production"` en `core/config.py:24` — un `.env` faltante o mal copiado
+nunca lo activa por error. Es un mecanismo más acotado y sí apagado en
+producción, distinto de `X-Usuario-Id`.
+
+## Configuración de IA (Claude)
+
+`CLAUDE_STUB_MODE` (`core/config.py:15`) tiene default `true`: mientras no
+se setee explícitamente `CLAUDE_STUB_MODE=false` junto con un
+`CLAUDE_API_KEY` real, toda la integración con Claude (entrevista, resumen
+de idea, clasificación, asignación de revisor, generación de documentos)
+devuelve respuestas simuladas con el prefijo `[STUB]`. Confirmar el valor
+de estas dos variables antes de considerar un ambiente "en producción con
+IA real".
+
 ## Problemas conocidos
 
-### 🔴 CRÍTICO — ENCODING: todas las columnas de texto libre son varchar (CP1252), no nvarchar
+### ✅ Resuelto — 2 gaps de autorización (escritura en ideas ajenas, lectura de perfiles ajenos)
 
-Cualquier carácter Unicode fuera de ese charset (flechas, emojis, comillas
-tipográficas, guiones largos, etc.) generado por la IA causa
-`UnicodeEncodeError` (crash) o corrupción silenciosa al guardar. Reproducido
-y confirmado el 2026-07-22, durante una prueba real de entrevista con IA
-(idea id=22): el texto generado por Claude contenía el carácter `→`
-(U+2192), y al guardar el mensaje en `mensajes_entrevista` se corrompió
-(se vio como `?` en el navegador).
+Corregidos en esta sesión: `POST /ideas/{id}/mensajes` y `POST
+/ideas/{id}/enviar` ahora exigen que quien llama sea el autor de la idea o
+un admin (antes cualquier usuario autenticado podía escribir/enviar una
+idea ajena solo conociendo el `idea_id`); y `GET /usuarios/{usuario_id}`
+ahora exige que sea el propio usuario o un admin (antes cualquier usuario
+autenticado podía leer el perfil completo de cualquier otro).
 
-Reproducido por la **ruta real de la app** (vía SQLAlchemy ORM —
-`db.add(MensajeEntrevista(...))` + `db.flush()`, el mismo camino que usa
-`ideas/router.py:enviar_mensaje`), no solo con SQL directo — insertar un
-`"→"` real lanza:
-```
-UnicodeEncodeError: 'charmap' codec can't encode character '→' in position 12
-```
+### ✅ Resuelto — encoding varchar/CP1252 en columnas de texto libre
 
-Causa raíz: `core/database.py` configura `setdecoding(SQL_CHAR,
-encoding="cp1252")` (necesario para leer acentos correctamente desde
-varchar), pero **nunca configura `setencoding()`** — pyodbc está
-reutilizando esa misma codificación cp1252 también para la escritura de
-parámetros `SQL_CHAR` (cómo SQLAlchemy vincula columnas `Text`/`VARCHAR`),
-en vez de mandarlos como Unicode.
+Este problema estuvo documentado acá como crítico y ya se corrigió:
+- Migración aplicada: `alembic/versions/1a2b3c4d5e6f_fix_encoding_varchar_a_nvarchar.py`
+  (encadenada en la historia real de Alembic, entre `8601a283f177` y
+  `2b7e5f9a1c3d`) — convierte a `NVARCHAR`/`NVARCHAR(MAX)` las columnas de
+  texto libre generadas por IA o por usuarios (mensajes de entrevista,
+  retroalimentación, justificaciones, nombres, rutas de archivo, etc.),
+  dejando aparte las columnas de tipo enum/código corto en ASCII puro.
+- `core/database.py` ya configura `setencoding()` explícito (UTF-16LE /
+  `SQL_WCHAR`) además del `setdecoding()` que ya tenía, cerrando la causa
+  raíz (pyodbc ya no reutiliza CP1252 para escribir parámetros).
 
-**Requiere:**
-1. Migración de Alembic cambiando las columnas listadas abajo a
-   `NVARCHAR(MAX)` (o el largo correspondiente).
-2. Fix en `core/database.py` agregando `setencoding()` explícito
-   (UTF-16LE / `SQL_WCHAR`) además del `setdecoding()` que ya existe.
-
-**Columnas afectadas** (100% de las columnas de texto libre del esquema,
-confirmado vía `sys.columns`/`sys.types` contra la BD real):
-```
-alembic_version.version_num
-analisis_riesgo_ideas.categoria, justificacion
-clasificacion_ideas.clasificacion, estado
-comite_ideas.estado, motivo_rechazo, tipo_cab
-configuraciones_escalamiento.etapa
-departamentos.nombre
-documentos_criterio.nombre_archivo, ruta_archivo, tipo
-documentos_generados.contenido, ruta_archivo, tipo_documento
-historial_retroalimentacion.retroalimentacion
-ideas.descripcion, estado, motivo_sugerencia_revisor_autor,
-     sugerencia_revisor_autor, titulo
-mensajes_entrevista.contenido, rol
-miembros_cab.tipo_cab
-notificaciones_escalamiento.etapa
-pines_admin.pin_hash
-puestos.nombre
-revision_ideas.estado, justificacion_ia, retroalimentacion
-rice_evaluaciones.area, confianza, esfuerzo, impacto, lider_funcional,
-                  presupuesto_rango, prioridad
-usuarios.compania, correo, nombre, pais, rol
-```
-
-**NO IMPLEMENTAR APURADO** — diseñar con cuidado la migración antes de
-aplicarla, ya que toca múltiples tablas con datos reales. Entre otras
-cosas hay que decidir: si TODAS esas columnas necesitan nvarchar de
-verdad (algunas son enums/códigos cortos en ASCII puro, ej. `estado`,
-`tipo_cab`, `rol` — probablemente no lo necesiten, pero cambiarlas de
-todas formas simplificaría no tener que mantener dos categorías), y cómo
-migrar el contenido ya almacenado (que hoy está en bytes CP1252, algunos
-posiblemente ya corruptos) sin perder ni corromper más datos en el proceso.
+Si en algún ambiente todavía se ve `UnicodeEncodeError` o texto corrupto
+con tildes/ñ/emojis/comillas tipográficas, confirmar primero que esa base
+tiene aplicada la migración `1a2b3c4d5e6f` (`alembic current`) antes de
+asumir que es este mismo problema otra vez.
 
 ### Puerto 8000 con reserva fantasma (Windows, este equipo)
 
@@ -168,53 +207,29 @@ Si en otro equipo el 8000 funciona sin problema, no hay nada que
 cambiar — el valor de `PORT`/`VITE_API_URL` en `.env` es local a cada
 entorno.
 
-## Login con Microsoft Entra ID (MSAL) — pendiente de IT
+### Recuperación de PIN de admin — todavía manual
 
-El andamiaje de login con Microsoft ya está en el código (frontend con
-MSAL, backend con `core/auth.py`), pero **no está activo** porque faltan
-credenciales reales. Mientras no lleguen, la app sigue funcionando con
-el usuario simulado de siempre (`frontend/src/core/UsuarioActualContext.tsx`)
-y la verificación de rol admin sigue siendo la temporal por header
-`X-Usuario-Id` (`usuarios/dependencies.py`).
+El módulo `criterios/` (documentos de IA versionados) usa un PIN personal
+por admin para autorizar subidas/ediciones de documentos. Hoy, si un
+admin olvida su PIN, no hay flujo de autoservicio — la única opción es
+que un desarrollador lo restablezca manualmente con
+`v1.0/scripts/resetear_pin_emergencia.py` directamente contra la base de
+datos.
 
-### Qué falta pedirle a IT (Arnoldo)
+Con el login de Microsoft ya activo (ver arriba) y el correo institucional
+ya disponible por usuario, esto es ahora técnicamente viable de resolver
+con un flujo de recuperación por correo (enlace de un solo uso, similar a
+"olvidé mi contraseña") — sigue pendiente de implementar, ya no de
+credenciales de IT.
 
-Registrar una app en Microsoft Entra ID (Azure AD) para este proyecto y
-compartir:
+### Otras piezas pendientes de decisión de negocio, no de código
 
-1. **Tenant ID** — identificador del directorio de Grupo ANC en Azure AD.
-2. **Client ID** (Application ID) — de la app registrada para este portal.
-3. **Client Secret** — solo necesario si en el futuro el backend valida
-   tokens directamente contra Azure AD (hoy `core/auth.py` está sin
-   implementar, así que esto puede pedirse después).
-4. Confirmar el **redirect URI** permitido (hoy pensado como la URL raíz
-   del frontend, ej. `http://localhost:5173/` en desarrollo).
-
-### Dónde van esas credenciales una vez que lleguen
-
-- Frontend (`frontend/.env`, nunca comitear):
-  ```
-  VITE_AZURE_CLIENT_ID=<Client ID>
-  VITE_AZURE_TENANT_ID=<Tenant ID>
-  ```
-  En cuanto estas dos variables tengan valor, el botón "Iniciar sesión
-  con Microsoft" aparece automáticamente en el header y el login real
-  con MSAL queda activo (`frontend/src/core/authConfig.ts` y
-  `AuthProvider.tsx`).
-- Backend: implementar `validar_token_azure` en `core/auth.py` (hoy
-  lanza `NotImplementedError` a propósito) y conectar `Client Secret`
-  cuando se decida validar tokens en el servidor en vez de confiar en
-  el frontend.
-
-### Otro pendiente relacionado: recuperación de PIN por correo
-
-**Recuperación de PIN por correo — bloqueado hasta tener login real con
-correo institucional vinculado.** El módulo `criterios/` (documentos de
-IA versionados) usa un PIN personal por admin para autorizar subidas de
-documentos. Hoy, si un admin olvida su PIN, no hay forma de recuperarlo
-vía la app — la única opción es que un desarrollador lo restablezca
-manualmente con `v1.0/scripts/resetear_pin_emergencia.py` directamente
-contra la base de datos. Una vez que el login de Microsoft Entra ID esté
-conectado y cada usuario tenga su correo institucional verificado, se
-puede reemplazar esto por un flujo de recuperación por correo (enlace
-de un solo uso, similar a "olvidé mi contraseña").
+Estas quedaron identificadas en revisiones recientes y no son bugs, sino
+alcance por definir:
+- `clasificacion/models.py` — una regla de negocio de clasificación
+  todavía depende de una definición pendiente del área de negocio.
+- `notificaciones/` — el envío de correo de escalamiento está en stub
+  (sin credenciales SMTP configuradas); el escalamiento in-app funciona.
+- CAB y criterios de IA de entrevista son hoy entidades globales, no
+  scoped por departamento — ver `diseno-pendiente/` si se aprueba avanzar
+  con ese cambio.
