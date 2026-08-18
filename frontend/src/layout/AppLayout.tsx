@@ -4,6 +4,7 @@ import { FiBell, FiHelpCircle, FiLock, FiLogOut } from 'react-icons/fi'
 import { useMsal } from '@azure/msal-react'
 import { azureAdConfigurado } from '../core/authConfig'
 import { useInactividad } from '../core/hooks/useInactividad'
+import { CLAVE_DEV_LOGIN_HECHO } from '../core/UsuarioActualContext'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
 import AyudaContextual from '../tour/AyudaContextual'
 import TourModal from '../tour/TourModal'
@@ -83,8 +84,22 @@ function BotonCerrarSesion() {
   const { instance } = useMsal()
   const usuarioActual = useUsuarioActual()
 
+  function cerrarSesion() {
+    // Limpiar el estado de sesión simulada/dev-login ANTES del logout de
+    // MSAL: sin esto, una cuenta que entró por "acceso rápido" (LoginScreen.tsx,
+    // que nunca crea sesión real de MSAL) quedaba con dev_login_hecho todavía
+    // en sessionStorage tras cerrar sesión — al refrescar, UsuarioActualContext
+    // seguía leyendo ese usuario "logueado" mientras el resto del flujo de auth
+    // ya no veía sesión, dejando la UI en un estado contradictorio sin
+    // interactividad. También se limpia sesion_ya_dirigida_a_inicio para que
+    // el próximo login real vuelva a redirigir al dashboard.
+    sessionStorage.removeItem(CLAVE_DEV_LOGIN_HECHO)
+    sessionStorage.removeItem(CLAVE_SESION_YA_DIRIGIDA)
+    instance.logoutRedirect()
+  }
+
   return (
-    <button className="btn-header-sesion" onClick={() => instance.logoutRedirect()} title="Cerrar sesión">
+    <button className="btn-header-sesion" onClick={cerrarSesion} title="Cerrar sesión">
       <FiLogOut /> {usuarioActual.nombre}
     </button>
   )

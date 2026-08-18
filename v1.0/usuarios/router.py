@@ -79,8 +79,10 @@ def obtener_usuario_por_correo(
 def obtener_usuario(
     usuario_id: int,
     db: Session = Depends(get_db),
-    _usuario_actual: models.Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: models.Usuario = Depends(obtener_usuario_actual),
 ):
+    if usuario_actual.rol != models.RolUsuario.admin and usuario_actual.id != usuario_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso al perfil de este usuario")
     usuario = db.get(models.Usuario, usuario_id)
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")

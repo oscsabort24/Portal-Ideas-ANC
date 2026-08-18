@@ -251,10 +251,12 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
             # na aler ta cu cuando...") o un `message` vacío — ambos
             # reproducidos y guardados en BD, ver idea de prueba 36.
             #
-            # Si la latencia por turno molesta, la otra palanca es
-            # thinking={"type": "disabled"} (un turno es una pregunta corta, no
-            # necesita razonar). NO se dejó puesta porque no se pudo probar
-            # contra la API real — quedó sin saldo durante el diagnóstico.
+            # thinking deshabilitado: un turno de entrevista es una pregunta
+            # corta, no necesita razonamiento extendido — y al deshabilitarlo
+            # el decodificador ya no compite por presupuesto con el grammar
+            # del Structured Output, que era la causa del texto destrozado
+            # descrito arriba.
+            thinking={"type": "disabled"},
             max_tokens=4096,
             system=f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}",
             messages=mensajes_anthropic,

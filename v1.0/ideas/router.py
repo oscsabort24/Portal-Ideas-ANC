@@ -150,17 +150,32 @@ def linea_tiempo(
     return construir_linea_tiempo(db, idea)
 
 
+def _validar_autor_o_admin(idea: Idea, usuario: Usuario) -> None:
+    """Solo el autor de la idea o un admin pueden escribir en ella (mandar
+    mensajes de entrevista, enviarla). Mismo criterio de excepción de admin
+    que _puede_ver_idea (más arriba), pero sin el acceso de revisor/CAB:
+    escribir en la entrevista de otra persona no es un caso legítimo ni
+    para quien la revisa, solo para su autor o un admin.
+    """
+    if usuario.rol == RolUsuario.admin:
+        return
+    if idea.autor_id == usuario.id:
+        return
+    raise HTTPException(status_code=403, detail="No tienes acceso a esta idea")
+
+
 @router.post("/{idea_id}/mensajes", response_model=schemas.RespuestaEntrevistaOut, status_code=201)
 def enviar_mensaje(
     idea_id: int,
     payload: schemas.MensajeEntrevistaCreate,
     db: Session = Depends(get_db),
-    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     idea = db.get(Idea, idea_id)
     if not idea:
         raise HTTPException(status_code=404, detail="Idea no encontrada")
+    _validar_autor_o_admin(idea, usuario_actual)
 
     # Reintento del MISMO intento de envío: el frontend conserva la clave
     # mientras el envío no haya tenido éxito (ver ChatEntrevista.tsx), así
@@ -271,7 +286,7 @@ def enviar_mensaje(
 def enviar_idea(
     idea_id: int,
     db: Session = Depends(get_db),
-    _usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
     """Envío manual de la idea, disparado por el botón "Enviar idea" del
     chat (ver ChatEntrevista.tsx) — reemplaza el cierre automático que
@@ -288,6 +303,7 @@ def enviar_idea(
     idea = db.get(Idea, idea_id)
     if not idea:
         raise HTTPException(status_code=404, detail="Idea no encontrada")
+    _validar_autor_o_admin(idea, usuario_actual)
 
     progreso = idea.progreso_bloques
     bloques_completos = bool(progreso) and all(
