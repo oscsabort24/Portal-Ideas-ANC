@@ -1,8 +1,9 @@
-export type TipoCriterio = 'clasificacion' | 'asignacion_revisor'
+export type TipoCriterio = 'clasificacion' | 'asignacion_revisor' | 'entrevista'
 
 export const ETIQUETA_TIPO_CRITERIO: Record<TipoCriterio, string> = {
   clasificacion: 'Clasificación',
   asignacion_revisor: 'Asignación de revisor',
+  entrevista: 'Entrevista',
 }
 
 export interface UsuarioResumen {
@@ -10,18 +11,16 @@ export interface UsuarioResumen {
   nombre: string
 }
 
-export interface DocumentoCriterio {
+export interface CriterioIA {
   id: number
   tipo: TipoCriterio
-  nombre_archivo: string
+  departamento_id: number | null
   version: number
   activo: boolean
-  contenido: string | null
+  contenido: string
   descripcion: string | null
-  subido_por: UsuarioResumen
-  subido_en: string
-  actualizado_por: UsuarioResumen | null
-  actualizado_en: string | null
+  creado_por: UsuarioResumen
+  creado_en: string
 }
 
 export interface PinDefinir {
@@ -29,8 +28,15 @@ export interface PinDefinir {
   pin_nuevo: string
 }
 
-export interface DocumentoCriterioEditar {
-  contenido?: string
+export interface GuardarCriterioRequest {
+  contenido: string
   descripcion?: string
+  departamento_id?: number | null
   pin: string
+}
+
+export interface CoberturaDepartamento {
+  departamento_id: number
+  nombre: string
+  tiene_excepcion: boolean
 }

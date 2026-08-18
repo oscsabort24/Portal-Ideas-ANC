@@ -6,51 +6,51 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from core.database import Base
-from usuarios.models import Usuario  # noqa: F401 — necesario para resolver las relaciones a Usuario
+from usuarios.models import Departamento, Usuario  # noqa: F401 — necesario para resolver las relaciones
 
 
 class TipoCriterio(str, enum.Enum):
     clasificacion = "clasificacion"
     asignacion_revisor = "asignacion_revisor"
+    entrevista = "entrevista"
 
 
-class DocumentoCriterio(Base):
-    """Una versión de un documento de criterios de IA.
+class CriterioIA(Base):
+    """Texto editable que alimenta un prompt de IA, versionado y protegido
+    por PIN de admin — reemplaza a DocumentoCriterio (documento subido).
 
-    Solo una versión por `tipo` tiene `activo=True` a la vez — es la que
-    usa el módulo de IA y la que se sirve en /criterios/{tipo} y
-    /criterios/{tipo}/descargar. Las versiones anteriores se conservan
-    (activo=False) para el historial de auditoría, nunca se borran.
+    departamento_id es NULL siempre para 'clasificacion' y
+    'asignacion_revisor' (criterios únicos, globales — validado en
+    criterios/router.py, no en la base). Para 'entrevista', NULL significa
+    "texto por defecto, aplica a los 18 departamentos salvo excepción", y
+    un departamento_id real es la excepción de ESE departamento puntual.
+
+    Cada guardado SIEMPRE crea una versión nueva y desactiva la anterior
+    (máxima trazabilidad/auditoría) — no existe edición sin versionar.
     """
 
-    __tablename__ = "documentos_criterio"
-    __table_args__ = (UniqueConstraint("tipo", "version", name="uq_documento_criterio_tipo_version"),)
+    __tablename__ = "criterios_ia"
+    __table_args__ = (
+        UniqueConstraint(
+            "tipo", "departamento_id", "version", name="uq_criterio_ia_tipo_departamento_version"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tipo: Mapped[TipoCriterio] = mapped_column(Enum(TipoCriterio, name="tipo_criterio"), nullable=False)
-    nombre_archivo: Mapped[str] = mapped_column(Unicode(300), nullable=False)
-    ruta_archivo: Mapped[str] = mapped_column(Unicode(500), nullable=False)
+    departamento_id: Mapped[int | None] = mapped_column(ForeignKey("departamentos.id"), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    # Texto editable del criterio (precargado desde el .docx al subir, ver
-    # criterios/router.py:subir_documento) y explicación corta de para qué
-    # sirve — ambos editables inline vía PATCH /criterios/{id} SIN generar
-    # una versión nueva (a diferencia de subir_documento): una edición de
-    # texto es una corrección sobre la MISMA versión activa, no un
-    # reemplazo de documento. actualizado_por/actualizado_en solo se llenan
-    # si hubo al menos una edición inline (quedan NULL si nunca se tocó).
-    contenido: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+    contenido: Mapped[str] = mapped_column(Unicode(), nullable=False)
     descripcion: Mapped[str | None] = mapped_column(Unicode(500), nullable=True)
-    actualizado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
-    actualizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    actualizado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[actualizado_por_id])
 
-    subido_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
-    subido_por: Mapped["Usuario"] = relationship(foreign_keys=[subido_por_id])
-    subido_en: Mapped[datetime] = mapped_column(
+    creado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    departamento: Mapped["Departamento | None"] = relationship()
+    creado_por: Mapped["Usuario"] = relationship()
 
 
 class PinAdmin(Base):

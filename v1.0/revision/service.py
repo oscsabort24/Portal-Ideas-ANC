@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from core.claude_client import asignar_revisor_ia
+from core.claude_client import _CRITERIOS_ASIGNACION_REVISOR_DEFAULT, asignar_revisor_ia
+from criterios.models import CriterioIA, TipoCriterio
 from ideas.models import Idea, MensajeEntrevista
 from permisos.models import ClavePermiso
 from permisos.service import rol_tiene_permiso
@@ -58,6 +59,22 @@ def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | Non
     )
 
 
+def _criterio_asignacion_revisor(db: Session) -> str:
+    """Texto activo de CriterioIA(tipo=asignacion_revisor) — antes de este
+    cambio, asignar_revisor_ia ignoraba lo que un admin subiera en
+    criterios/ y usaba siempre la constante hardcodeada
+    _CRITERIOS_ASIGNACION_REVISOR_DEFAULT, un bug real (el criterio se
+    guardaba pero nunca se usaba). Se mantiene ese default solo como
+    respaldo para el momento en que todavía no exista ninguna fila activa
+    (ej. justo después de aplicar la migración de criterios_ia)."""
+    criterio = (
+        db.query(CriterioIA)
+        .filter_by(tipo=TipoCriterio.asignacion_revisor, departamento_id=None, activo=True)
+        .first()
+    )
+    return criterio.contenido if criterio else _CRITERIOS_ASIGNACION_REVISOR_DEFAULT
+
+
 def _asignar_por_ia(db: Session, idea: Idea, departamentos: list[Departamento]) -> dict | None:
     if not departamentos:
         return None
@@ -69,6 +86,7 @@ def _asignar_por_ia(db: Session, idea: Idea, departamentos: list[Departamento]) 
             sugerencia_autor=idea.sugerencia_revisor_autor,
             motivo_autor=idea.motivo_sugerencia_revisor_autor,
             nombres_departamentos=[d.nombre for d in departamentos],
+            criterio_texto=_criterio_asignacion_revisor(db),
         )
     except Exception:
         # Cualquier fallo inesperado (no solo de la API, que

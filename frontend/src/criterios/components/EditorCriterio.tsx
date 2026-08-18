@@ -1,48 +1,50 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { editarDocumento } from '../api'
-import type { DocumentoCriterio } from '../types'
+import { guardarCriterio } from '../api'
+import type { CriterioIA, TipoCriterio } from '../types'
 
 export default function EditorCriterio({
-  documento,
+  tipo,
+  departamentoId,
+  criterio,
   onGuardado,
 }: {
-  documento: DocumentoCriterio
-  onGuardado: (actualizado: DocumentoCriterio) => void
+  tipo: TipoCriterio
+  departamentoId?: number
+  criterio: CriterioIA | null
+  onGuardado: (nuevo: CriterioIA) => void
 }) {
-  const [descripcion, setDescripcion] = useState(documento.descripcion ?? '')
-  const [contenido, setContenido] = useState(documento.contenido ?? '')
+  const [descripcion, setDescripcion] = useState(criterio?.descripcion ?? '')
+  const [contenido, setContenido] = useState(criterio?.contenido ?? '')
   const [pin, setPin] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exito, setExito] = useState(false)
 
-  // Si el admin sube una versión nueva o cambia de tab, el formulario se
-  // resetea al contenido/descripción de ESE documento (no arrastra lo que
-  // se estaba editando del anterior).
+  // Al cambiar de pestaña/departamento, el formulario se resetea al
+  // contenido de ESE criterio (no arrastra lo que se estaba editando).
   useEffect(() => {
-    setDescripcion(documento.descripcion ?? '')
-    setContenido(documento.contenido ?? '')
+    setDescripcion(criterio?.descripcion ?? '')
+    setContenido(criterio?.contenido ?? '')
     setError(null)
     setExito(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documento.id])
-
-  const huboCambios = descripcion !== (documento.descripcion ?? '') || contenido !== (documento.contenido ?? '')
+  }, [tipo, departamentoId, criterio?.id])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!pin.trim() || !huboCambios) return
+    if (!pin.trim() || !contenido.trim()) return
 
     setEnviando(true)
     setError(null)
     setExito(false)
     try {
-      const actualizado = await editarDocumento(documento.id, {
-        descripcion: descripcion.trim(),
+      const nuevo = await guardarCriterio(tipo, {
         contenido,
+        descripcion: descripcion.trim() || undefined,
+        departamento_id: departamentoId ?? null,
         pin: pin.trim(),
       })
-      onGuardado(actualizado)
+      onGuardado(nuevo)
       setPin('')
       setExito(true)
     } catch (err) {
@@ -74,7 +76,7 @@ export default function EditorCriterio({
           className="form-input criterio-textarea"
           value={contenido}
           onChange={(e) => setContenido(e.target.value)}
-          placeholder="Pega o escribe aquí el texto del criterio (si el documento activo es un .pdf, no se extrajo automáticamente — pegalo a mano una sola vez)."
+          placeholder="Escribí aquí el texto del criterio."
           rows={14}
         />
       </div>
@@ -93,10 +95,10 @@ export default function EditorCriterio({
       </div>
 
       {error && <p className="form-error">{error}</p>}
-      {exito && !error && <p className="nota-temporal">Cambios guardados.</p>}
+      {exito && !error && <p className="nota-temporal">Guardado como versión nueva.</p>}
 
-      <button type="submit" className="btn-primary" disabled={!huboCambios || !pin.trim() || enviando}>
-        {enviando ? 'Guardando...' : 'Guardar cambios'}
+      <button type="submit" className="btn-primary" disabled={!contenido.trim() || !pin.trim() || enviando}>
+        {enviando ? 'Guardando...' : 'Guardar como versión nueva'}
       </button>
     </form>
   )

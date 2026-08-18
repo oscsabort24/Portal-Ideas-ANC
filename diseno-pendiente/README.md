@@ -1,4 +1,4 @@
-# Diseño pendiente de aprobación — Fases 3 y 4
+# Diseño pendiente de aprobación — Fases 3 y 4, y CAB/criterios por departamento
 
 Estos archivos **no son código activo**. La extensión `.preview` los mantiene
 fuera de todo lo que Python importa y de lo que alembic escanea, así que el
@@ -15,6 +15,9 @@ El código real (`v1.0/usuarios/models.py`, `v1.0/revision/*`,
 | `fase3-4-modelos-router-schemas.diff.preview` | Diff unificado contra `HEAD` de los 6 archivos que tocarían las Fases 3 y 4 |
 | `b4d17c9e5a20_responsables_area_y_origen_asignacion.py.preview` | Migración de Fase 3 |
 | `c9f3e820d114_historial_idea_y_reasignacion_con_aceptacion.py.preview` | Migración de Fase 4 |
+| `cab-departamento-y-criterios-ia.md.preview` | Diseño de CAB por departamento. Su sección 2 (criterios de entrevista por departamento) quedó **superseded** por `cascada-revisor-y-criterios-texto.md.preview` — ver nota al inicio de la sección 2 de este archivo |
+| `cascada-revisor-y-criterios-texto.md.preview` | Diseño de la cascada de asignación de revisor (jefe inmediato → CAB del departamento → pendiente_asignacion) y migración de los 3 tipos de criterios de IA (clasificación, asignación de revisor, entrevista) de documento subido a texto editable con scoping por departamento. Depende de que se resuelvan primero las decisiones abiertas 1 y 2 de `cab-departamento-y-criterios-ia.md.preview` |
+| `9c2f4e71a0b3_criterios_ia_texto_y_entrevista.py.preview` | Migración de la tabla `criterios_ia` (reemplaza `documentos_criterio`) |
 | `fase-permisos-por-rol.md.preview` | Inventario completo de checks de autorización hardcodeados por rol + diseño de tabla `permisos_rol` configurable. Las 6 decisiones abiertas ya quedaron resueltas — incluye tabla de verificación fila por fila (22 checks) |
 | `4d81f6c93a52_permisos_rol.py.preview` | Migración de la tabla `permisos_rol` + seed exacto (4 filas) que replica el comportamiento actual sin cambios |
 

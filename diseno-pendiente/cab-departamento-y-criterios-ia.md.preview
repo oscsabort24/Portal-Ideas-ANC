@@ -1,0 +1,482 @@
+# Diseño pendiente — CAB por departamento + criterios de IA por departamento
+
+Este documento **no es código activo**. Es un diseño para revisión y
+aprobación, en el mismo espíritu que los `.preview` de Fase 3/4 (ver
+`diseno-pendiente/README.md`). No se aplicó ninguna migración ni se tocó
+código en `v1.0/` ni `frontend/` al escribir esto.
+
+Estado real del código en el momento de este diseño: igual al que describe
+`diseno-pendiente/README.md` (Fase 3/4 sin aplicar, `alembic current ==
+alembic heads == 7e2c4a91b3f0`). Este diseño **asume que Fase 3/4 ya se
+aplicó** en el punto 1.4 (reasignación de CAB) — si se decide aplicar este
+diseño antes de Fase 3/4, esa sección hay que revisarla.
+
+---
+
+## 1. CAB por departamento
+
+### 1.1 Modelo: `MiembroCAB` — 1:N o N:M con `Departamento`
+
+**Decisión propuesta: N:M**, vía tabla puente `miembros_cab_departamentos`.
+
+Por qué no 1:N (una columna `departamento_id` en `MiembroCAB`):
+- El caso de uso mencionado por el negocio ("uno o varios departamentos")
+  ya descarta 1:N directamente — un miembro de CAB necesita ver más de un
+  departamento (ej. alguien de Tecnología que también cubre Operaciones).
+- 1:N obligaría a crear **una fila de `MiembroCAB` por departamento** para
+  la misma persona, lo cual duplica cualquier metadata que a futuro cuelgue
+  de `MiembroCAB` (hoy solo `tipo_cab`, pero ver 1.3) y complica "¿cuántos
+  miembros de CAB hay realmente" (la respuesta ya no es `count(MiembroCAB)`).
+
+Por qué N:M con tabla puente y no un array/JSON de IDs en `MiembroCAB`:
+- SQL Server + SQLAlchemy: modelar "lista de FKs" como columna JSON pierde
+  integridad referencial (un departamento borrado no se limpia solo) y hace
+  imposible un `JOIN` para filtrar `ComiteIdea` por departamento del autor
+  sin parsear JSON en cada fila. La tabla puente es el patrón estándar del
+  resto del código (ver `ResponsableArea`, que es esencialmente esto mismo
+  para revisores) y permite el filtro de 1.2 con un `JOIN` normal.
+
+```python
+# usuarios/models.py — nueva tabla puente
+
+class MiembroCABDepartamento(Base):
+    """Un departamento que un miembro de CAB puede ver/atender.
+
+    N:M explícito en vez de un array en MiembroCAB — permite el JOIN de
+    _validar_acceso_comite / cola_comite (comites/router.py) sin parsear
+    nada, y mantiene integridad referencial si un Departamento se borra o
+    renombra.
+    """
+
+    __tablename__ = "miembros_cab_departamentos"
+    __table_args__ = (
+        UniqueConstraint(
+            "miembro_cab_id", "departamento_id", name="uq_miembro_cab_departamento"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    miembro_cab_id: Mapped[int] = mapped_column(ForeignKey("miembros_cab.id"), nullable=False)
+    departamento_id: Mapped[int] = mapped_column(ForeignKey("departamentos.id"), nullable=False)
+
+    miembro_cab: Mapped["MiembroCAB"] = relationship(back_populates="departamentos")
+    departamento: Mapped["Departamento"] = relationship()
+
+
+class MiembroCAB(Base):
+    __tablename__ = "miembros_cab"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    tipo_cab: Mapped[TipoCAB] = mapped_column(Enum(TipoCAB, name="tipo_cab"), nullable=False)  # ver 1.3
+
+    usuario: Mapped["Usuario"] = relationship(back_populates="membresias_cab")
+    departamentos: Mapped[list["MiembroCABDepartamento"]] = relationship(
+        back_populates="miembro_cab", cascade="all, delete-orphan"
+    )
+```
+
+**Caso "ve todos los departamentos"**: en vez de una fila especial ("todos"),
+un miembro con `departamentos` vacío o con una fila de departamento
+"comodín" — se decide por ausencia de filas, no por un flag. Ver 1.2.
+
+### 1.2 Filtro de acceso: por departamento, no por `tipo_cab`
+
+`_validar_acceso_comite` y `cola_comite` (`comites/router.py:16-51`) dejan
+de filtrar por `tipo_cab == tipo_cab` del path param y empiezan a filtrar
+por: ¿el departamento del autor de la idea está entre los departamentos
+asignados a este miembro de CAB?
+
+```python
+# comites/router.py — reemplaza _validar_acceso_comite y cola_comite
+
+def _departamentos_visibles(db: Session, usuario: usuarios_models.Usuario) -> list[int] | None:
+    """None = ve todos los departamentos (admin, o miembro sin filas en
+    miembros_cab_departamentos — ausencia de filas se interpreta como
+    "todos", no como "ninguno", porque así queda el comportamiento de hoy
+    para cualquier miembro migrado sin datos nuevos todavía — ver 1.5)."""
+    if usuario.rol == usuarios_models.RolUsuario.admin:
+        return None
+    membresias = (
+        db.query(usuarios_models.MiembroCAB)
+        .filter(usuarios_models.MiembroCAB.usuario_id == usuario.id)
+        .all()
+    )
+    if not membresias:
+        return []  # no es miembro de ningún CAB: no ve nada
+    ids_departamento = {
+        d.departamento_id for m in membresias for d in m.departamentos
+    }
+    if not ids_departamento:
+        return None  # miembro de CAB sin departamentos asignados: ve todo
+    return list(ids_departamento)
+
+
+def _validar_acceso_comite_idea(
+    db: Session, usuario: usuarios_models.Usuario, comite: ComiteIdea
+) -> None:
+    if usuario.rol == usuarios_models.RolUsuario.admin or not usuario.activo:
+        if not usuario.activo:
+            raise HTTPException(status_code=403, detail="Usuario inactivo")
+        return
+    departamentos = _departamentos_visibles(db, usuario)
+    if departamentos is None:
+        return
+    departamento_autor_id = comite.idea.autor.departamento_id
+    if departamento_autor_id not in departamentos:
+        raise HTTPException(
+            status_code=403, detail="Esta idea no pertenece a un departamento asignado a tu CAB"
+        )
+
+
+@router.get("/cola", response_model=list[schemas.ComiteIdeaDetalleOut])
+def cola_comite(
+    estado: EstadoComite = EstadoComite.pendiente,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    departamentos = _departamentos_visibles(db, usuario_actual)
+    if departamentos == []:
+        return []
+    query = (
+        db.query(ComiteIdea)
+        .join(Idea, ComiteIdea.idea_id == Idea.id)
+        .join(Usuario, Idea.autor_id == Usuario.id)
+        .filter(ComiteIdea.estado == estado)
+    )
+    if departamentos is not None:
+        query = query.filter(Usuario.departamento_id.in_(departamentos))
+    return query.order_by(ComiteIdea.creado_en.asc(), ComiteIdea.id.asc()).all()
+```
+
+Nota de ruta: `GET /comites/{tipo_cab}/cola` pasa a `GET /comites/cola` (sin
+`tipo_cab` en el path) — es un cambio de contrato de API, no solo interno.
+`aprobar`/`rechazar`/`obtener_rice`/`guardar_rice` (que hoy llaman
+`_validar_acceso_comite(db, usuario_actual, comite.tipo_cab)`) pasan a llamar
+`_validar_acceso_comite_idea(db, usuario_actual, comite)`.
+
+### 1.3 Qué pasa con `tipo_cab`
+
+**Se mantiene como metadata, sin efecto en el filtro de acceso.**
+
+Razones para no eliminarlo:
+- `ComiteIdea.tipo_cab` (`comites/models.py:42`) se sigue llenando al
+  clasificar la idea (`clasificacion/router.py` → `crear_comite_idea_para_idea`)
+  y sigue siendo información real y útil: distingue si una idea es una
+  propuesta de innovación o de transformación digital, independientemente
+  de quién la vea. Es un atributo de la IDEA, no un criterio de acceso.
+- El RICE (`RiceEvaluacion.area`, texto libre) y reportes futuros pueden
+  seguir queriendo agrupar/filtrar por este eje sin que eso implique que
+  define quién tiene acceso.
+- Eliminarlo requeriría migrar/backfillear `ComiteIdea.tipo_cab` y tocar
+  `clasificacion/` sin necesidad real — el negocio solo pidió cambiar el
+  CRITERIO DE ACCESO, no eliminar la clasificación innovación/TD.
+
+Lo que sí cambia: `MiembroCAB.tipo_cab` deja de ser el eje de autorización.
+**Decisión abierta (ver "Decisiones abiertas" al final):** ¿se mantiene
+`tipo_cab` en `MiembroCAB` como filtro adicional opcional ("veo Operaciones,
+pero solo lo de Innovación"), o se vacía de significado y queda solo para no
+romper la migración de datos existente? Este diseño asume la segunda opción
+por simplicidad (ver 1.5), pero es una decisión de negocio, no técnica.
+
+### 1.4 Reasignación de ideas por miembros de CAB
+
+Hoy "encargado de área" reasigna vía el mecanismo de Fase 4
+(`revision/router.py:reasignar` → `pendiente_aceptacion_reasignacion` →
+`aceptar-reasignacion`/`rechazar-reasignacion`, ver
+`diseno-pendiente/fase3-4-modelos-router-schemas.diff.preview`). Ese
+mecanismo vive en `revision/` y opera sobre `RevisionIdea` — la revisión
+previa al CAB, no sobre `ComiteIdea`.
+
+**Estos son dos flujos distintos que no se deben fusionar:**
+- `RevisionIdea` = la revisión de un encargado de área ANTES de que la idea
+  llegue al CAB (o vuelva por cambios solicitados).
+- `ComiteIdea` = el paso por el comité DESPUÉS de clasificada, con
+  `aprobar`/`rechazar`, no con "reasignar a otra persona que revise" —
+  hoy no hay noción de "el CAB le pasa la idea a otro miembro del CAB".
+
+**Propuesta**: extender el mecanismo de Fase 4 a `ComiteIdea`, reusando
+`HistorialIdea`/`TipoEventoIdea` (que ya está diseñado para crecer, ver su
+docstring en el diff de Fase 4) en vez de duplicar el patrón de columnas de
+`RevisionIdea` en `ComiteIdea`:
+
+```python
+# comites/models.py — agregar a ComiteIdea (mismo patrón que RevisionIdea)
+
+class EstadoComite(str, enum.Enum):
+    pendiente = "pendiente"
+    aprobada = "aprobada"
+    rechazada = "rechazada"
+    pendiente_aceptacion_reasignacion = "pendiente_aceptacion_reasignacion"  # nuevo
+
+
+# En ComiteIdea:
+revisor_propuesto_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+reasignacion_solicitada_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+fecha_solicitud_reasignacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+rechazos_reasignacion_consecutivos: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+```
+
+Nuevos endpoints `POST /comites/{idea_id}/reasignar`,
+`/aceptar-reasignacion`, `/rechazar-reasignacion` en `comites/router.py`,
+espejo casi literal de los de `revision/router.py`, con dos diferencias de
+validación:
+1. El "nuevo revisor" propuesto debe ser un `MiembroCAB` con acceso al
+   departamento de esa idea (vía `_departamentos_visibles`), no cualquier
+   usuario — a diferencia de revisión, donde el universo de revisores
+   válidos no está limitado por CAB.
+2. `aplicar_rechazo_reasignacion`/`expirar_reasignaciones_vencidas`
+   (`revision/service.py:608-696`) están escritas contra `RevisionIdea` — la
+   opción de menor esfuerzo es **generalizarlas** a un protocolo común
+   (duck typing sobre los 4 campos de reasignación + `HistorialIdea`) en vez
+   de copiarlas, para que Fase 4 y este cambio no diverjan en la política de
+   "2 rechazos consecutivos → pool". Esto es una refactorización de
+   `revision/service.py`, no solo una adición — vale la pena decidir si se
+   hace en el mismo cambio o se posterga (ver decisiones abiertas).
+
+**Esto es la pieza más grande de los tres cambios** — es esencialmente
+"Fase 4, pero para `ComiteIdea`" y probablemente merece su propia migración
+y su propio ciclo de revisión, no ir en el mismo commit que 1.1/1.2.
+
+### 1.5 Frontend: `ColaComite.tsx`
+
+Hoy (`ColaComite.tsx:13-18,120-132`): pestañas por `tipo_cab`, mostradas
+solo si `tiposCab.length > 1` (`useEsMiembroCab.ts`), cada una llamando
+`GET /comites/{tipo_cab}/cola`.
+
+Cambia a:
+- Una sola pantalla, sin pestañas.
+- Llama `GET /comites/cola` (sin tipo en el path — ver 1.2).
+- `useEsMiembroCab.ts` deja de exponer `tiposCab: TipoCAB[]` como el dato
+  relevante para decidir qué renderizar — en su lugar expone simplemente
+  "esMiembroCab: boolean" (¿el usuario tiene alguna fila en `MiembroCAB`,
+  de cualquier tipo?) para decidir si se muestra la pantalla de CAB en el
+  menú, ya que el filtro de contenido pasa a ser 100% responsabilidad del
+  backend.
+- Si se quiere mostrar en la UI qué departamentos ve el usuario (útil para
+  que la persona entienda por qué ve lo que ve), se necesita un endpoint
+  nuevo `GET /comites/mis-departamentos` o incluirlo en la respuesta de
+  `/usuarios/me` — no es estrictamente necesario para el filtro, es
+  transparencia de UX.
+
+---
+
+## 2. Criterios de IA por departamento
+
+> **SUPERSEDED** — esta sección quedó reemplazada por
+> `cascada-revisor-y-criterios-texto.md.preview`, que generaliza el
+> mecanismo a los 3 tipos de criterio (clasificación, asignación de
+> revisor, entrevista) en una sola tabla `CriterioIA` con
+> `departamento_id` opcional, en vez de la tabla separada
+> `CriterioEntrevistaDepartamento` propuesta acá. Se deja el texto
+> original abajo por contexto histórico, pero no es lo que se va a
+> implementar.
+
+### 2.1 Alcance actual vs. requerido
+
+Hoy `DocumentoCriterio` (`criterios/models.py:17-53`) cubre `TipoCriterio`
+= `clasificacion` | `asignacion_revisor`, un documento activo global por
+tipo, sin dimensión de departamento. `SYSTEM_PROMPT_ENTREVISTA`
+(`ideas/router.py:27`) y `_CRITERIOS_ENTREVISTA`
+(`core/claude_client.py:66-214`) son strings de Python, no tocan esa tabla
+en absoluto.
+
+Se pide: que el tono/profundidad/estilo de las preguntas de entrevista
+pueda variar por departamento (ejemplo dado: Operaciones más duro/detallado
+que otros).
+
+### 2.2 ¿`DocumentoCriterio` extendido, o tabla nueva?
+
+**Propuesta: tabla nueva**, no extender `DocumentoCriterio`.
+
+Por qué no extender `DocumentoCriterio`:
+- `DocumentoCriterio` está modelado alrededor de "un documento subido
+  (.docx), versionado, con PIN de admin para reemplazarlo"
+  (`criterios/router.py`, `PinAdmin`). Los criterios de entrevista son
+  texto de prompt, no un documento que alguien sube — no hay archivo que
+  versionar de la misma forma, y forzar ese flujo (subir un .docx con el
+  tono de las preguntas) es más fricción que valor.
+- Agregar `departamento_id` (nullable, para "aplica a todos") a
+  `DocumentoCriterio` mezclaría dos ejes de variación (tipo Y departamento)
+  en una tabla pensada para uno solo, y el `UniqueConstraint("tipo",
+  "version")` actual tendría que ganar `departamento_id` también, lo cual
+  cambia el significado de "versión" para los dos tipos que ya existen sin
+  necesidad.
+
+```python
+# criterios/models.py — tabla nueva
+
+class TipoCriterioEntrevista(str, enum.Enum):
+    tono = "tono"
+    profundidad = "profundidad"
+    estilo_preguntas = "estilo_preguntas"
+
+
+class CriterioEntrevistaDepartamento(Base):
+    """Ajuste de tono/profundidad/estilo de la entrevista, por departamento.
+
+    A diferencia de DocumentoCriterio (documento subido y versionado con
+    PIN), esto es texto de prompt editable directamente — no hay archivo
+    fuente que reemplazar, así que no hereda ese flujo.
+
+    departamento_id NULL = criterio por defecto, aplicado cuando el
+    departamento del autor de la idea no tiene fila propia. Como máximo una
+    fila activa por (departamento_id, tipo) — igual que DocumentoCriterio,
+    versiones viejas se conservan con activo=False para auditoría.
+    """
+
+    __tablename__ = "criterios_entrevista_departamento"
+    __table_args__ = (
+        UniqueConstraint(
+            "departamento_id", "tipo", "version",
+            name="uq_criterio_entrevista_depto_tipo_version",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    departamento_id: Mapped[int | None] = mapped_column(ForeignKey("departamentos.id"), nullable=True)
+    tipo: Mapped[TipoCriterioEntrevista] = mapped_column(
+        Enum(TipoCriterioEntrevista, name="tipo_criterio_entrevista"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    contenido: Mapped[str] = mapped_column(Unicode(), nullable=False)
+
+    actualizado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    departamento: Mapped["Departamento | None"] = relationship()
+    actualizado_por: Mapped["Usuario"] = relationship()
+```
+
+### 2.3 Cómo se inyecta en `claude_client.py`
+
+`generar_respuesta` (`claude_client.py:233`) gana un parámetro
+`departamento_id: int | None`, y el caller en `ideas/router.py:236` pasa
+`idea.autor.departamento_id`:
+
+```python
+# core/claude_client.py
+
+def generar_respuesta(
+    mensajes: list[dict], system_prompt: str, departamento_id: int | None
+) -> dict:
+    ...
+    ajustes = _obtener_criterios_entrevista_departamento(departamento_id)
+    system = f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}\n\n{ajustes}" if ajustes else \
+        f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}"
+    response = _client.messages.parse(
+        ...
+        system=system,
+        ...
+    )
+```
+
+```python
+# ideas/router.py:236
+respuesta = generar_respuesta(mensajes_para_ia, SYSTEM_PROMPT_ENTREVISTA, idea.autor.departamento_id)
+```
+
+`_obtener_criterios_entrevista_departamento` hace la consulta con fallback
+a `departamento_id IS NULL` cuando no hay fila específica del departamento
+— mismo patrón de "fila específica gana, comodín NULL es respaldo" que
+`ResponsableArea` (Fase 3, ver diff pendiente) ya usa para país/compañía.
+
+`_CRITERIOS_ENTREVISTA` (el grueso del prompt: cómo hablar, qué preguntar,
+qué NO hacer, formato de `progreso_bloques`) **se mantiene como está,
+hardcodeado** — solo se le agrega el ajuste de departamento al final, no se
+reemplaza. Esto evita que un admin sin criterio técnico pueda romper la
+estructura de `progreso_bloques` (que el backend depende de que exista) al
+editar el texto del departamento — el ajuste editable es aditivo, no
+sustitutivo.
+
+Documentos (`generar_contenido_documentos`, `_CRITERIOS_DOCUMENTOS`,
+`claude_client.py:442-554`) **no se tocan en este diseño** — el pedido del
+negocio fue específicamente sobre el tono/dureza de las preguntas de
+entrevista, no sobre generación de documentos. Si se quiere extender
+después, el mismo mecanismo aplica.
+
+### 2.4 API/UI para editar
+
+Nuevo router `criterios/router.py` (o extensión del existente) con
+`GET /criterios/entrevista/{departamento_id}` y
+`PUT /criterios/entrevista/{departamento_id}/{tipo}` — quién puede editar
+se decide en el punto 3.
+
+---
+
+## 3. Interacción entre 1 y 2
+
+**Sí interactúan, en el punto de autorización de edición — no en el
+runtime de la entrevista.**
+
+El runtime de la entrevista (2.3) no pasa por CAB en absoluto: se dispara
+cuando el autor de la idea escribe un mensaje (`ideas/router.py`), antes de
+que exista siquiera un `ComiteIdea`. El departamento que decide qué
+criterios aplican es el del AUTOR de la idea, no el de ningún miembro de
+CAB — son ejes independientes en tiempo de ejecución.
+
+Donde sí se cruzan es en **quién puede editar** los criterios de un
+departamento (2.4). Dos opciones:
+
+- **(a) Solo admin edita criterios de entrevista**, para todos los
+  departamentos — más simple, consistente con que hoy `DocumentoCriterio`
+  también lo sube/edita un admin con PIN (`criterios/router.py`,
+  `PinAdmin`). No requiere ninguna conexión con el modelo de CAB del punto 1.
+- **(b) Un miembro de CAB puede editar los criterios de entrevista de los
+  departamentos que ve** (vía `MiembroCABDepartamento`, 1.1) — más
+  autonomía por área, pero introduce una segunda razón de ser miembro de
+  CAB (aprobar ideas Y definir cómo se entrevista a esa gente), y el
+  `_departamentos_visibles` de 1.2 se convertiría en una función compartida
+  entre `comites/` y `criterios/` (que hoy no se conocen entre sí).
+
+Este diseño **recomienda (a)** para el primer corte — desacopla los dos
+cambios (se puede entregar 1 y 2 en cualquier orden, o en paralelo, sin que
+uno bloquee al otro) y no fuerza una decisión de gobernanza
+("¿el CAB de Operaciones controla también el tono de las entrevistas de
+Operaciones?") que el negocio no pidió explícitamente. Si más adelante se
+quiere (b), el cambio es acotado: reusar `_departamentos_visibles` como
+dependencia de autorización en el router de criterios.
+
+**Otro punto de cruce, más sutil**: si en 1.3 se decide que `tipo_cab` sigue
+siendo un filtro adicional dentro del departamento (CAB Innovación vs. TD
+del mismo departamento), y a futuro alguien pidiera que el tono de
+entrevista también varíe por `tipo_cab` y no solo por departamento, el
+esquema de la tabla del punto 2.2 tendría que crecer una columna más. No se
+modela ahora porque no fue pedido, se deja como nota para no diseñar en un
+rincón que dificulte agregarlo después (la tabla ya tiene `UniqueConstraint`
+explícito, agregar una columna a esa constraint es una migración simple).
+
+---
+
+## Decisiones abiertas (para el negocio, no técnicas)
+
+1. **1.3**: ¿`tipo_cab` en `MiembroCAB` sigue siendo un filtro real
+   ("veo Operaciones, pero solo lo de Innovación") o queda vacío de
+   significado tras este cambio? Afecta si `_departamentos_visibles` debe
+   cruzar también por `tipo_cab` o no.
+2. **1.4**: ¿la reasignación dentro del CAB se entrega junto con 1.1/1.2, o
+   se trata como una Fase 5 separada? Es la pieza de mayor esfuerzo y la
+   que más se parece a un proyecto propio.
+3. **1.4**: ¿se generaliza `aplicar_rechazo_reasignacion`/
+   `expirar_reasignaciones_vencidas` para compartirse entre `revision/` y
+   `comites/`, o se acepta duplicar la política por ahora y unificar
+   después?
+4. **1.5**: ¿se necesita que la UI muestre explícitamente "estás viendo
+   Operaciones y Tecnología" (endpoint nuevo), o alcanza con que la cola
+   ya venga filtrada sin explicarlo?
+5. **2.3**: ¿el ajuste por departamento debe poder anular partes de
+   `_CRITERIOS_ENTREVISTA` (ej. la estructura de `progreso_bloques`), o se
+   mantiene estrictamente aditivo como se diseñó acá? Aditivo es más seguro
+   pero más limitado.
+6. **3**: confirmar que (a) — solo admin edita criterios de entrevista — es
+   aceptable, o si el negocio realmente quiere que sea el propio CAB de
+   cada departamento quien lo controle (opción b).
+7. **Migraciones**: este diseño no incluye archivos de migración Alembic
+   todavía (a diferencia de Fase 3/4, que sí trae `.py.preview` de
+   migración) porque depende de resolver 1.3 y 3 primero — una vez
+   aprobadas esas decisiones, se generan las migraciones para
+   `miembros_cab_departamentos`, los campos nuevos de `ComiteIdea`, y
+   `criterios_entrevista_departamento`.

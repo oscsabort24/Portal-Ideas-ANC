@@ -1,0 +1,610 @@
+# Diseño pendiente — Cascada de asignación de revisor + Criterios de IA en texto (3 tipos)
+
+Este documento **no es código activo**, ni las migraciones que referencia
+al final. Mismo espíritu que los `.preview` anteriores
+(`diseno-pendiente/README.md`, `diseno-pendiente/cab-departamento-y-criterios-ia.md.preview`).
+
+**Dependencia declarada**: la parte 1 (cascada) depende del **CAB por
+departamento** diseñado en `cab-departamento-y-criterios-ia.md.preview`
+(tabla `MiembroCABDepartamento`), que a su vez tiene decisiones de negocio
+abiertas sin resolver todavía (ver ese documento, sección "Decisiones
+abiertas", puntos 1 y 2). **Este diseño no se puede implementar antes que
+ese**, o al menos antes de resolver sus puntos 1 y 2.
+
+**Este documento reemplaza/absorbe la sección 2 de
+`cab-departamento-y-criterios-ia.md.preview`** ("Criterios de IA por
+departamento" — tabla `CriterioEntrevistaDepartamento`). Ese diseño
+proponía una tabla separada solo para el criterio de entrevista; acá se
+generaliza el mecanismo de `DocumentoCriterio` para los 3 tipos a la vez
+(clasificación, asignación de revisor, entrevista), y el scoping por
+departamento queda cubierto por la misma tabla unificada en vez de una
+tabla aparte. Se deja una nota de esto en aquel documento (ver al final).
+
+---
+
+## 0. Decisión abierta más importante — léase primero
+
+Hay una tensión real entre lo que pide el punto 1 (cascada) y lo que pide
+el punto 2 (reconectar `asignacion_revisor` al runtime), y **no la resolví
+por mi cuenta** — se documenta acá para que la decidan antes de implementar.
+
+**El conflicto**: hoy `asignar_revisor_ia` (`core/claude_client.py:706`)
+le pide a la IA que **adivine a qué DEPARTAMENTO** le corresponde revisar
+una idea, a partir de su contenido (no del departamento del autor). La
+cascada que describís en el punto 1 usa el **departamento del autor
+directamente** en el Nivel 2 ("el CAB del departamento del autor") — sin
+ninguna sugerencia de IA sobre departamento. Si la cascada se implementa
+tal cual la describís, el mecanismo de "IA sugiere departamento" queda sin
+ningún llamador real — exactamente el mismo problema que tiene HOY
+`asignacion_revisor` (subido pero no leído), solo que ahora sería un
+problema de diseño, no de bug.
+
+**Interpretación que adopté para el resto de este documento** (necesita
+confirmación): en el Nivel 2, el departamento del autor puede tener **más
+de un miembro de CAB asignado** (la relación es N:M, ver
+`MiembroCABDepartamento` en el otro diseño). Cuando hay más de un
+candidato, ahí sí hay una decisión real que tomar — "¿cuál de estos
+miembros de CAB debería revisar ESTA idea en particular?" — y ahí
+**reconecto** `asignar_revisor_ia`/`_CRITERIOS_ASIGNACION_REVISOR` con un
+propósito nuevo y real: desambiguar entre varios miembros de CAB del
+mismo departamento, no elegir el departamento (que ya no hace falta
+adivinar). Si el departamento tiene exactamente un miembro de CAB
+asignado, se asigna directo sin llamar a la IA — más rápido y más
+determinístico cuando no hace falta desambiguar.
+
+Alternativa que consideré y descarté por ahora (mencionada para que la
+evalúen): usar `ResponsableArea` (Fase 3, tampoco aplicado todavía) en vez
+de IA para desambiguar, con un campo `prioridad` explícito igual que ya
+hace para revisores — sería más predecible que dejarle la decisión a la
+IA, pero significa depender de una Fase 3 que también está pendiente de
+aprobación. Lo dejo como opción B explícita más abajo, en las decisiones
+abiertas.
+
+**Segunda ambigüedad, más estructural, también sin resolver**: "la idea va
+directo al CAB del departamento del autor" — interpreto que significa
+"el revisor de `RevisionIdea` pasa a ser un miembro de CAB de ese
+departamento" (la idea sigue el flujo normal: `RevisionIdea` →
+`aprobar` → `ClasificacionIdea` → `ComiteIdea`, solo que quien revisa es
+un miembro de CAB en vez de un `encargado_area`). La lectura alternativa
+—que la idea salte directo a la cola del comité (`ComiteIdea`), saltándose
+`RevisionIdea` y `ClasificacionIdea` por completo— es un cambio de flujo
+mucho más grande (una idea llegaría al CAB sin haber sido clasificada
+Innovación/Transformación Digital todavía, lo cual rompe cómo
+`ComiteIdea.tipo_cab` se asigna hoy, ver `comites/service.py`). Adopto la
+primera lectura como la más consistente con el resto del sistema, pero
+confirmar esto es más importante que cualquier otro detalle de este
+documento.
+
+---
+
+## 1. Cascada de asignación de revisor
+
+### 1.1 Reemplaza a `_buscar_encargado_activo` / `_asignar_por_ia` en `revision/service.py`
+
+```python
+# revision/service.py — nueva versión de crear_revision_para_idea
+
+ROLES_HABILITADOS_REVISOR = (RolUsuario.encargado_area, RolUsuario.gerente, RolUsuario.admin)
+
+
+def _jefe_inmediato_valido(autor: Usuario) -> Usuario | None:
+    """Nivel 1 de la cascada: el jefe inmediato del autor (Usuario.reporta_a),
+    si existe, está activo, y tiene un rol habilitado para revisar.
+
+    A propósito NO se filtra por departamento: reporta_a describe la línea
+    jerárquica real de la persona, que puede cruzar departamentos (ej. un
+    coordinador de Operaciones que reporta a un gerente de Flota). El
+    criterio del negocio es "quién es tu jefe", no "quién dirige tu área".
+    """
+    jefe = autor.reporta_a
+    if jefe is None or not jefe.activo:
+        return None
+    if jefe.rol not in ROLES_HABILITADOS_REVISOR:
+        return None
+    return jefe
+
+
+def _miembros_cab_del_departamento(db: Session, departamento_id: int) -> list[Usuario]:
+    """Nivel 2: miembros de CAB con asignación EXPLÍCITA a este departamento
+    (ver MiembroCABDepartamento, diseño de CAB por departamento).
+
+    A propósito NO incluye a los miembros "comodín" (sin filas en
+    miembros_cab_departamentos, que en ese diseño significa "ve todos los
+    departamentos") — ver a todo para aprobar no es lo mismo que ser la
+    persona correcta para REVISAR una idea de un departamento específico
+    antes de que llegue al comité. Un admin puede seguir asignando
+    manualmente a cualquiera vía POST /revision/{idea_id}/asignar.
+    """
+    return (
+        db.query(Usuario)
+        .join(MiembroCAB, MiembroCAB.usuario_id == Usuario.id)
+        .join(MiembroCABDepartamento, MiembroCABDepartamento.miembro_cab_id == MiembroCAB.id)
+        .filter(MiembroCABDepartamento.departamento_id == departamento_id, Usuario.activo == True)  # noqa: E712
+        .distinct()
+        .all()
+    )
+
+
+def _elegir_revisor_cab(db: Session, idea: Idea, candidatos: list[Usuario]) -> tuple[Usuario, str | None]:
+    """Si hay un solo candidato, se asigna directo (justificacion=None, no
+    hizo falta decidir nada). Si hay más de uno, se reconecta
+    asignar_revisor_ia — ya NO para elegir departamento (eso ya lo
+    determinó el departamento del autor), sino para elegir a CUÁL de los
+    miembros de CAB de ese departamento le corresponde esta idea por
+    tema/contenido. Ver sección 0 de este documento para la decisión que
+    esto todavía necesita confirmar.
+    """
+    if len(candidatos) == 1:
+        return candidatos[0], None
+    historial = _historial_para_ia(db, idea.id)
+    resultado = asignar_revisor_ia(  # firma ajustada — ver 1.3 más abajo
+        historial=historial,
+        titulo=idea.titulo,
+        candidatos=[{"id": u.id, "nombre": u.nombre} for u in candidatos],
+    )
+    if resultado is None:
+        # La IA falló: se cae al primero por id, no se deja sin asignar
+        # solo porque había más de un candidato válido.
+        return sorted(candidatos, key=lambda u: u.id)[0], None
+    elegido = next((u for u in candidatos if u.id == resultado["usuario_id"]), candidatos[0])
+    return elegido, resultado["justificacion"]
+
+
+def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
+    autor = idea.autor
+    revisor: Usuario | None = None
+    justificacion: str | None = None
+
+    # Nivel 1
+    revisor = _jefe_inmediato_valido(autor)
+
+    # Nivel 2
+    if revisor is None and autor.departamento_id is not None:
+        candidatos = _miembros_cab_del_departamento(db, autor.departamento_id)
+        if candidatos:
+            revisor, justificacion = _elegir_revisor_cab(db, idea, candidatos)
+
+    # Nivel 3: pendiente_asignacion, sin cambios respecto a hoy.
+    ahora = datetime.now(timezone.utc)
+    revision = RevisionIdea(
+        idea_id=idea.id,
+        revisor_id=revisor.id if revisor else None,
+        estado=EstadoRevision.pendiente_revision if revisor else EstadoRevision.pendiente_asignacion,
+        fecha_asignacion=ahora if revisor else None,
+        justificacion_ia=justificacion,
+    )
+    db.add(revision)
+    return revision
+```
+
+Se **eliminan** de este flujo: `departamento_sugerido_ia_id`,
+`acepto_sugerencia_autor` (dejan de tener sentido — ya no hay una
+sugerencia de departamento que aceptar o no) y el campo
+`sugerencia_revisor_autor`/`motivo_sugerencia_revisor_autor` del autor
+pierde su único consumidor actual. **Decisión abierta**: ¿se eliminan
+esas columnas de `RevisionIdea`/`Idea` (limpieza), o se dejan en la tabla
+sin usarse por si se quiere revivir esa función más adelante? Recomiendo
+dejarlas nullable sin escribir, no borrarlas todavía — es reversible y
+no cuesta nada mantenerlas de más una migración.
+
+### 1.2 Qué pasa con `encargado_area`
+
+**No se elimina el rol.** `RolUsuario.encargado_area` sigue existiendo y
+sigue siendo necesario para:
+- `revision/router.py:_validar_revisor_destino` (línea 24-30) — quién es
+  un destino válido cuando un admin asigna/reasigna manualmente.
+- `documentos/router.py` (líneas 45, 98) — permisos de generación/lectura
+  de documentos, ligados al rol de quien es el revisor asignado de la
+  idea, sea quien sea.
+- Es, en general, el rol que describe "esta persona puede actuar como
+  revisor" — independiente de POR QUÉ mecanismo llegó a ser el revisor de
+  una idea concreta (jefe inmediato, miembro de CAB, o asignación manual
+  de un admin).
+
+**Lo que sí cambia**: `encargado_area` deja de ser, por sí mismo, el
+criterio que la asignación AUTOMÁTICA usa para elegir a alguien por
+departamento (eso era `_buscar_encargado_activo`, que se elimina). Un
+jefe inmediato (Nivel 1) puede o no tener este rol — la cascada exige
+`rol in ROLES_HABILITADOS_REVISOR`, que sigue incluyendo
+`encargado_area`, `gerente` y `admin`, así que en la práctica un jefe con
+rol `encargado_area` sigue calificando. Lo que deja de pasar es que
+alguien sea elegido SOLO por tener ese rol y estar en el departamento
+correcto — ahora hace falta además ser el jefe inmediato de esa persona
+específica, o ser miembro de CAB de ese departamento.
+
+**Propuesta, no asumida**: mantener `encargado_area` tal cual está hoy
+(rol de permiso, no de asignación automática). Si el negocio quiere que
+"encargado de área" siga siendo un concepto de asignación automática
+independiente de la jerarquía (`reporta_a`) y del CAB, sería un CUARTO
+nivel a insertar en la cascada (ej. entre Nivel 1 y Nivel 2) — no está
+incluido porque no lo pediste explícitamente y agregarlo sin pedirlo
+sería asumir. Si lo quieren, es un cambio de una función más, no
+estructural.
+
+### 1.3 Cambios a `asignar_revisor_ia` (`core/claude_client.py`)
+
+Cambia de firma — de "elegí un departamento de esta lista" a "elegí una
+persona de esta lista":
+
+```python
+class SeleccionRevisorResultado(BaseModel):
+    usuario_id: int
+    justificacion: str = Field(min_length=1)
+
+
+def asignar_revisor_ia(
+    historial: list[dict],
+    titulo: str,
+    candidatos: list[dict],  # [{"id": int, "nombre": str}, ...]
+) -> dict | None:
+    """Ya NO decide el departamento (ver sección 0) — decide, entre varios
+    miembros de CAB del MISMO departamento, a cuál le corresponde esta
+    idea en particular por tema/contenido. Devuelve None si la API falla
+    o no parsea — el caller cae al primero por id (ver
+    revision/service.py:_elegir_revisor_cab).
+    """
+    if settings.claude_stub_mode:
+        return {"usuario_id": candidatos[0]["id"], "justificacion": "[STUB] selección simulada"}
+    ...
+    system=criterio_asignacion_revisor_activo(),  # ver 2.3 — ya no una constante hardcodeada
+    ...
+```
+
+`sugerencia_autor`/`motivo_autor` se eliminan de la firma — ya no hay
+"aceptar o no la sugerencia del autor", esa noción pertenecía al mecanismo
+de sugerir departamento que se retira.
+
+---
+
+## 2. Criterios de IA: de documento a texto (3 tipos, mecanismo unificado)
+
+### 2.1 Reemplaza `DocumentoCriterio` por una tabla única `CriterioIA`
+
+Un mecanismo para los 3 tipos, en vez de un documento subido. Como pediste,
+no hace falta preservar contenido (los documentos actuales son de prueba):
+se reemplaza la tabla completa, no se migra su contenido.
+
+```python
+# criterios/models.py
+
+class TipoCriterio(str, enum.Enum):
+    clasificacion = "clasificacion"
+    asignacion_revisor = "asignacion_revisor"
+    entrevista = "entrevista"  # nuevo
+
+
+class CriterioIA(Base):
+    """Texto editable que alimenta un prompt de IA, versionado y
+    protegido por PIN de admin — mismo nivel de control que
+    DocumentoCriterio, sin archivo de por medio.
+
+    departamento_id es NULL siempre para 'clasificacion' y
+    'asignacion_revisor' (son criterios únicos, globales — no tiene
+    sentido un criterio de clasificación distinto por departamento, no fue
+    pedido). Para 'entrevista', NULL significa "el texto por defecto,
+    aplica a los 18 departamentos salvo excepción", y un departamento_id
+    real es la excepción de ESE departamento puntual. La validación de
+    esta regla (NULL obligatorio para los primeros dos tipos) vive en el
+    router, no en un CHECK de base de datos — SQL Server + un CHECK
+    condicional por valor de enum es viable pero más frágil de mantener
+    que una validación en Python, y este límite es sobre puramente cómo
+    la app usa la tabla, no una invariante de integridad referencial.
+
+    activo=True es único por (tipo, departamento_id) — la versión vigente
+    de ESE criterio puntual. Versiones anteriores quedan con activo=False,
+    igual que DocumentoCriterio, para auditoría.
+    """
+
+    __tablename__ = "criterios_ia"
+    __table_args__ = (
+        UniqueConstraint(
+            "tipo", "departamento_id", "version",
+            name="uq_criterio_ia_tipo_departamento_version",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tipo: Mapped[TipoCriterio] = mapped_column(Enum(TipoCriterio, name="tipo_criterio"), nullable=False)
+    departamento_id: Mapped[int | None] = mapped_column(ForeignKey("departamentos.id"), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    contenido: Mapped[str] = mapped_column(Unicode(), nullable=False)
+    descripcion: Mapped[str | None] = mapped_column(Unicode(500), nullable=True)
+
+    creado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    departamento: Mapped["Departamento | None"] = relationship()
+    creado_por: Mapped["Usuario"] = relationship()
+
+
+# PinAdmin no cambia — mismo mecanismo de PIN, ver criterios/models.py actual.
+```
+
+**Decisión de nombres, no solo técnica**: renombré `subido_por_id` a
+`creado_por_id` y la tabla de `documentos_criterio` a `criterios_ia`
+porque "documento"/"subido" dejan de describir lo que es esto. Si
+prefieren minimizar el diff y mantener los nombres viejos aunque ya no
+encajen semánticamente, es un cambio de una palabra en la migración —
+avisen si lo prefieren así.
+
+### 2.2 Endpoints (`criterios/router.py`) — reemplaza subir/editar por un único guardar
+
+```python
+@router.get("/{tipo}", response_model=schemas.CriterioIAOut)
+def obtener_criterio_activo(
+    tipo: TipoCriterio,
+    departamento_id: int | None = None,
+    db: Session = Depends(get_db),
+    _admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
+    _validar_departamento_aplica(tipo, departamento_id)
+    criterio = (
+        db.query(models.CriterioIA)
+        .filter_by(tipo=tipo, departamento_id=departamento_id, activo=True)
+        .first()
+    )
+    if not criterio:
+        raise HTTPException(status_code=404, detail="No hay un criterio activo todavía")
+    return criterio
+
+
+@router.get("/{tipo}/historial", response_model=list[schemas.CriterioIAOut])
+def historial_criterio(
+    tipo: TipoCriterio,
+    departamento_id: int | None = None,
+    db: Session = Depends(get_db),
+    _admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
+    _validar_departamento_aplica(tipo, departamento_id)
+    return (
+        db.query(models.CriterioIA)
+        .filter_by(tipo=tipo, departamento_id=departamento_id)
+        .order_by(models.CriterioIA.version.desc())
+        .all()
+    )
+
+
+@router.put("/{tipo}", response_model=schemas.CriterioIAOut, status_code=201)
+def guardar_criterio(
+    tipo: TipoCriterio,
+    payload: schemas.CriterioIAGuardar,  # {contenido, descripcion, pin, departamento_id}
+    db: Session = Depends(get_db),
+    admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
+    """Cada guardado crea una versión nueva y desactiva la anterior — fusiona
+    lo que antes eran dos acciones separadas (subir_documento versionaba,
+    editar_documento no). Con texto puro ya no hay una distinción real
+    entre "reemplazar el documento" y "corregir una palabra": toda edición
+    de texto ES el criterio nuevo. Decisión abierta: si en la práctica se
+    editan muchas erratas menores, versionar cada una puede ensuciar el
+    historial — si eso molesta, se puede reintroducir una edición liviana
+    sin versión más adelante, no es un cambio grande.
+    """
+    _validar_departamento_aplica(tipo, payload.departamento_id)
+
+    pin_admin = db.query(models.PinAdmin).filter_by(usuario_id=admin.id).first()
+    if not pin_admin:
+        raise HTTPException(status_code=400, detail="Todavía no has definido tu PIN personal")
+    if not verificar_pin(payload.pin, pin_admin.pin_hash):
+        raise HTTPException(status_code=403, detail="El PIN no es correcto")
+
+    anterior = (
+        db.query(models.CriterioIA)
+        .filter_by(tipo=tipo, departamento_id=payload.departamento_id, activo=True)
+        .with_for_update()
+        .first()
+    )
+    siguiente_version = (anterior.version if anterior else 0) + 1
+    if anterior:
+        anterior.activo = False
+
+    nuevo = models.CriterioIA(
+        tipo=tipo,
+        departamento_id=payload.departamento_id,
+        version=siguiente_version,
+        activo=True,
+        contenido=payload.contenido,
+        descripcion=payload.descripcion,
+        creado_por_id=admin.id,
+    )
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+    return nuevo
+
+
+def _validar_departamento_aplica(tipo: TipoCriterio, departamento_id: int | None) -> None:
+    if tipo != TipoCriterio.entrevista and departamento_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El tipo '{tipo.value}' no admite scoping por departamento",
+        )
+
+
+# Convenience opcional para la UI del tab de Entrevista: qué departamentos
+# tienen excepción propia y cuáles usan el default.
+@router.get("/entrevista/cobertura", response_model=list[schemas.CoberturaDepartamentoOut])
+def cobertura_entrevista(
+    db: Session = Depends(get_db),
+    _admin: usuarios_models.Usuario = Depends(requerir_admin),
+):
+    departamentos = db.query(usuarios_models.Departamento).order_by(usuarios_models.Departamento.nombre).all()
+    con_excepcion = {
+        c.departamento_id
+        for c in db.query(models.CriterioIA)
+        .filter_by(tipo=TipoCriterio.entrevista, activo=True)
+        .filter(models.CriterioIA.departamento_id.isnot(None))
+        .all()
+    }
+    return [
+        {"departamento_id": d.id, "nombre": d.nombre, "tiene_excepcion": d.id in con_excepcion}
+        for d in departamentos
+    ]
+```
+
+**Se eliminan**: `subir_documento`, `editar_documento`,
+`descargar_documento_activo` y el `UploadFile`/`Form` en las rutas.
+`criterios/archivos.py` (`guardar_archivo`, `extraer_texto_docx`,
+`borrar_archivo`, `validar_extension`) queda sin llamadores dentro de
+`criterios/` — **verificar antes de borrarlo** si algún otro módulo lo
+usa (no encontré ninguno en la investigación de esta sesión, pero
+confirmar en el momento de implementar).
+
+### 2.3 Inyección real en los 3 prompts
+
+**Clasificación** (`clasificacion/service.py:_clasificar_con_ia`) — cambia
+la consulta, ya no necesita el fallback de extraer `.docx`:
+
+```python
+def _clasificar_con_ia(db: Session, idea: Idea) -> dict | None:
+    criterio = (
+        db.query(CriterioIA)
+        .filter_by(tipo=TipoCriterio.clasificacion, departamento_id=None, activo=True)
+        .first()
+    )
+    if not criterio:
+        return None
+    historial = _historial_para_ia(db, idea.id)
+    return clasificar_idea(historial, criterio.contenido)
+```
+
+**Asignación de revisor** (`revision/service.py:_elegir_revisor_cab`,
+sección 1.1) — **esta es la corrección real del bug**: hoy
+`_CRITERIOS_ASIGNACION_REVISOR` es una constante en `claude_client.py`
+que nunca se toca; a partir de este cambio, `asignar_revisor_ia` recibe
+el texto activo de la BD como `system`:
+
+```python
+def criterio_asignacion_revisor_activo(db: Session) -> str:
+    criterio = (
+        db.query(CriterioIA)
+        .filter_by(tipo=TipoCriterio.asignacion_revisor, departamento_id=None, activo=True)
+        .first()
+    )
+    return criterio.contenido if criterio else _CRITERIOS_ASIGNACION_REVISOR_DEFAULT
+```
+
+Se mantiene una constante de respaldo (`_CRITERIOS_ASIGNACION_REVISOR_DEFAULT`,
+el texto actual) para el caso de que todavía no exista ninguna fila activa
+—p. ej. justo después de aplicar la migración, antes de que un admin
+guarde el primer texto—, para que la desambiguación entre miembros de CAB
+no se quede sin instrucciones el primer día.
+
+**Entrevista** (`ideas/router.py:enviar_mensaje` → `generar_respuesta`) —
+aditivo al final de `_CRITERIOS_ENTREVISTA`, igual que se diseñó en la
+sección 2.3 del documento de CAB (ahora contra la tabla unificada en vez
+de `CriterioEntrevistaDepartamento`):
+
+```python
+# core/claude_client.py
+def generar_respuesta(mensajes: list[dict], system_prompt: str, departamento_id: int | None) -> dict:
+    ...
+    ajuste = _criterio_entrevista_departamento(departamento_id)
+    system = f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}"
+    if ajuste:
+        system += f"\n\n{ajuste}"
+    ...
+
+
+def _criterio_entrevista_departamento(departamento_id: int | None) -> str | None:
+    """Fila específica del departamento gana; si no existe, cae al default
+    (departamento_id NULL). Mismo patrón de 'fila específica gana, comodín
+    NULL es respaldo' que ResponsableArea (Fase 3, no aplicada todavía)
+    usa para país/compañía."""
+    db = SessionLocal()
+    try:
+        especifico = (
+            db.query(CriterioIA)
+            .filter_by(tipo=TipoCriterio.entrevista, departamento_id=departamento_id, activo=True)
+            .first()
+        )
+        if especifico:
+            return especifico.contenido
+        default = (
+            db.query(CriterioIA)
+            .filter_by(tipo=TipoCriterio.entrevista, departamento_id=None, activo=True)
+            .first()
+        )
+        return default.contenido if default else None
+    finally:
+        db.close()
+```
+
+```python
+# ideas/router.py:enviar_mensaje
+respuesta = generar_respuesta(mensajes_para_ia, SYSTEM_PROMPT_ENTREVISTA, idea.autor.departamento_id)
+```
+
+Igual que en el diseño anterior: el ajuste de departamento es **aditivo,
+nunca sustitutivo** — no puede romper la estructura de `progreso_bloques`
+que el resto del backend depende de que exista.
+
+### 2.4 Frontend
+
+`frontend/src/criterios/`:
+- `types.ts` — `TipoCriterio` gana `'entrevista'`; `ETIQUETA_TIPO_CRITERIO`
+  gana `entrevista: 'Entrevista'`.
+- `CriteriosView.tsx` — `TIPOS` gana `'entrevista'` (ahora 3 pestañas);
+  para la pestaña de Entrevista, un selector adicional arriba del editor:
+  "Default (18 departamentos)" + lista de departamentos con indicador de
+  si tienen excepción propia (`GET /criterios/entrevista/cobertura`).
+- **Se eliminan**: `FormularioSubirDocumento.tsx`, `DocumentoActivo.tsx`
+  (ya no hay archivo que mostrar/descargar).
+- **Se agrega/reemplaza**: un `EditorCriterio.tsx` único (textarea +
+  descripción + campo PIN + botón guardar) que sirve para los 3 tipos —
+  hoy ya existe `EditorCriterio.tsx` para la edición inline; se convierte
+  en el componente principal de cada pestaña en vez de un complemento del
+  documento subido.
+- `HistorialVersiones.tsx` se mantiene, ahora recibe `departamento_id`
+  como parámetro adicional para el caso de Entrevista.
+- `api.ts` — cambia `subirDocumento`/`editarDocumento` por un único
+  `guardarCriterio(tipo, {contenido, descripcion, pin, departamentoId})`.
+
+---
+
+## Decisiones abiertas
+
+1. **Sección 0**: confirmar la interpretación de "va directo al CAB" —
+   ¿el revisor de `RevisionIdea` pasa a ser un miembro de CAB (lectura
+   adoptada acá), o la idea salta directo a la cola del comité sin pasar
+   por revisión/clasificación (cambio de flujo mucho mayor, no diseñado
+   en este documento)?
+2. **Sección 0**: confirmar que `asignar_revisor_ia` se reutiliza para
+   desambiguar ENTRE miembros de CAB del mismo departamento (opción
+   adoptada), en vez de usar un mecanismo determinístico tipo
+   `ResponsableArea`/prioridad (opción B, más predecible pero depende de
+   Fase 3, también pendiente de aprobar).
+3. **1.1**: ¿se borran `departamento_sugerido_ia_id`, `acepto_sugerencia_autor`,
+   `sugerencia_revisor_autor`, `motivo_sugerencia_revisor_autor` de una
+   vez (limpieza), o se dejan sin usar por ahora (recomendado, reversible)?
+4. **1.2**: ¿`encargado_area` se queda exactamente como está hoy (solo
+   permiso, ya no asignación automática — propuesta de este documento), o
+   el negocio quiere insertarlo como un nivel extra de la cascada (ej.
+   entre Nivel 1 y Nivel 2)?
+5. **2.1**: ¿se renombra la tabla/columnas (`documentos_criterio` →
+   `criterios_ia`, `subido_por_id` → `creado_por_id`) o se mantienen los
+   nombres viejos para minimizar el diff de la migración, aunque ya no
+   describan bien lo que guardan?
+6. **2.2**: ¿cada guardado de texto debe versionar siempre (propuesta de
+   este documento), o vale la pena mantener una variante de edición
+   liviana sin nueva versión para correcciones menores (como hoy hace
+   `PATCH /criterios/{id}`)?
+7. Este diseño **depende de** las decisiones abiertas 1 y 2 de
+   `cab-departamento-y-criterios-ia.md.preview` (rol de `tipo_cab`,
+   fase de la reasignación de CAB) — no se puede generar la migración
+   final de `MiembroCABDepartamento` sin esas dos resueltas primero.
+
+---
+
+## Migraciones (.preview, no aplicadas)
+
+Ver `diseno-pendiente/9c2f4e71a0b3_criterios_ia_texto_y_entrevista.py.preview`
+— cubre únicamente la parte 2 (tabla `criterios_ia`, enum con
+`entrevista`, drop de `documentos_criterio`). **No incluye** ninguna
+migración para la parte 1 (cascada) porque no se puede generar sin
+resolver primero la dependencia declarada al inicio de este documento
+(`MiembroCABDepartamento` de `cab-departamento-y-criterios-ia.md.preview`,
+que a su vez tiene decisiones de negocio sin cerrar).

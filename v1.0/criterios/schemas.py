@@ -16,22 +16,27 @@ class UsuarioResumenOut(BaseModel):
     nombre: str
 
 
-class DocumentoCriterioOut(BaseModel):
+class CriterioIAOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     tipo: TipoCriterio
-    nombre_archivo: str
+    departamento_id: int | None
     version: int
     activo: bool
-    contenido: str | None = None
+    contenido: str
     descripcion: str | None = None
-    subido_por: UsuarioResumenOut
-    subido_en: datetime
-    actualizado_por: UsuarioResumenOut | None = None
-    actualizado_en: datetime | None = None
+    creado_por: UsuarioResumenOut
+    creado_en: datetime
 
 
-class DocumentoCriterioEditar(BaseModel):
-    contenido: str | None = None
+class GuardarCriterioRequest(BaseModel):
+    contenido: str = Field(min_length=1)
     descripcion: str | None = Field(default=None, max_length=500)
+    departamento_id: int | None = None
     pin: str
+
+
+class CoberturaDepartamentoOut(BaseModel):
+    departamento_id: int
+    nombre: str
+    tiene_excepcion: bool

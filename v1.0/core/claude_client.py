@@ -230,7 +230,44 @@ _RESPUESTA_DEGRADADA_SIN_PARSEAR = {
 }
 
 
-def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
+def _criterio_entrevista_departamento(departamento_id: int | None) -> str | None:
+    """Ajuste ADITIVO al prompt de entrevista según el departamento del
+    autor de la idea — nunca sustituye _CRITERIOS_ENTREVISTA, solo se le
+    agrega al final. Fila específica del departamento gana; si no existe,
+    cae al default (departamento_id NULL). Import local de
+    core.database/criterios.models para evitar un ciclo de imports (este
+    módulo no importa nada de criterios/ a nivel de módulo)."""
+    from core.database import SessionLocal
+    from criterios.models import CriterioIA, TipoCriterio
+
+    db = SessionLocal()
+    try:
+        especifico = (
+            db.query(CriterioIA)
+            .filter_by(tipo=TipoCriterio.entrevista, departamento_id=departamento_id, activo=True)
+            .first()
+            if departamento_id is not None
+            else None
+        )
+        if especifico:
+            return especifico.contenido
+        default = (
+            db.query(CriterioIA)
+            .filter_by(tipo=TipoCriterio.entrevista, departamento_id=None, activo=True)
+            .first()
+        )
+        return default.contenido if default else None
+    finally:
+        db.close()
+
+
+def _construir_system_entrevista(system_prompt: str, departamento_id: int | None) -> str:
+    base = f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}"
+    ajuste = _criterio_entrevista_departamento(departamento_id)
+    return f"{base}\n\n{ajuste}" if ajuste else base
+
+
+def generar_respuesta(mensajes: list[dict], system_prompt: str, departamento_id: int | None) -> dict:
     if settings.claude_stub_mode:
         return _respuesta_stub(mensajes, system_prompt)
 
@@ -258,7 +295,7 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str) -> dict:
             # descrito arriba.
             thinking={"type": "disabled"},
             max_tokens=4096,
-            system=f"{system_prompt}\n\n{_CRITERIOS_ENTREVISTA}",
+            system=_construir_system_entrevista(system_prompt, departamento_id),
             messages=mensajes_anthropic,
             output_format=RespuestaEntrevista,
         )
@@ -687,7 +724,7 @@ def clasificar_idea(historial: list[dict], criterio_texto: str) -> dict | None:
     return {"clasificacion": parsed.clasificacion, "justificacion": parsed.justificacion}
 
 
-_CRITERIOS_ASIGNACION_REVISOR = """
+_CRITERIOS_ASIGNACION_REVISOR_DEFAULT = """
 Analiza el CONTENIDO de esta idea (no el departamento de quien la escribió)
 y decide a qué departamento de la lista dada le corresponde revisarla por
 tema/materia.
@@ -711,6 +748,7 @@ def asignar_revisor_ia(
     sugerencia_autor: str | None,
     motivo_autor: str | None,
     nombres_departamentos: list[str],
+    criterio_texto: str,
 ) -> dict | None:
     """Sugiere a qué departamento le corresponde revisar una idea, a partir
     de su contenido real (no de la regla simple "mismo departamento del
@@ -718,6 +756,13 @@ def asignar_revisor_ia(
     parsear — el caller (revision/service.py) debe interpretar eso como
     "usa el fallback de mismo departamento del autor", nunca debe romper
     el envío de la idea.
+
+    `criterio_texto` es el contenido activo de CriterioIA(tipo=asignacion_revisor)
+    leído por el caller — antes este prompt era la constante hardcodeada
+    _CRITERIOS_ASIGNACION_REVISOR_DEFAULT sin importar lo que un admin
+    subiera en criterios/, un bug real (el criterio se guardaba pero nunca
+    se usaba). El caller pasa ese default solo si todavía no existe
+    ninguna fila activa en la BD.
 
     `acepto_sugerencia_autor` en el dict devuelto solo es significativo si
     `sugerencia_autor` no era None — el caller es responsable de forzarlo
@@ -774,7 +819,7 @@ def asignar_revisor_ia(
             model=settings.claude_model,
             # 4096, no 1024 — ver generar_respuesta.
             max_tokens=4096,
-            system=_CRITERIOS_ASIGNACION_REVISOR,
+            system=criterio_texto,
             messages=mensajes_anthropic,
             output_format=AsignacionRevisorResultado,
         )

@@ -249,7 +249,7 @@ def enviar_mensaje(
     )
     mensajes_para_ia = [{"role": m.rol.value, "content": m.contenido} for m in historial]
 
-    respuesta = generar_respuesta(mensajes_para_ia, SYSTEM_PROMPT_ENTREVISTA)
+    respuesta = generar_respuesta(mensajes_para_ia, SYSTEM_PROMPT_ENTREVISTA, idea.autor.departamento_id)
 
     mensaje_asistente = MensajeEntrevista(
         idea_id=idea_id,
