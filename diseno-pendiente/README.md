@@ -1,62 +1,58 @@
-# Diseño pendiente de aprobación — Fases 3 y 4, y CAB/criterios por departamento
+# Diseño pendiente de aprobación
 
 Estos archivos **no son código activo**. La extensión `.preview` los mantiene
 fuera de todo lo que Python importa y de lo que alembic escanea, así que el
 backend arranca normalmente con ellos presentes.
 
-El código real (`v1.0/usuarios/models.py`, `v1.0/revision/*`,
-`v1.0/ideas/models.py`) está en su estado previo a Fase 3/4, y
-`alembic current` == `alembic heads` == `7e2c4a91b3f0`.
+## ✅ Fases 3 y 4, y CAB por departamento con reasignación — YA APLICADAS
+
+`alembic current == alembic heads == a3f7c9e21d68`. El código real
+(`v1.0/usuarios/models.py`, `v1.0/revision/*`, `v1.0/comites/*`,
+`v1.0/ideas/models.py`, `v1.0/core/reasignacion.py`) ya incluye Fase 3,
+Fase 4, y CAB por departamento con reasignación — las migraciones
+correspondientes (`b4d17c9e5a20`, `c9f3e820d114`, `a3f7c9e21d68`) están
+en `v1.0/alembic/versions/`, ya corridas. Las copias `.preview` de acá se
+conservan como registro histórico del diseño, no como algo pendiente de
+aplicar.
+
+**Desviación deliberada de Fase 3**: la tabla `responsables_area` existe
+en la base, pero `revision/service.py:_buscar_encargado_activo` **NO la
+usa** — sigue resolviendo por departamento+rol directamente. Se decidió
+así porque la tabla nace vacía sin el seed de datos reales del negocio, y
+activarla habría roto la asignación automática para todos los usuarios de
+prueba. Ver `cab-departamento-reasignacion.md.preview` para el detalle.
+Cuando exista ese seed, `_buscar_encargado_activo` es el único punto a
+cambiar.
+
+**Rename aplicado**: `revisor_propuesto_id` (nombre original de Fase 4)
+se aplicó como `propuesto_a_id`, para que el mismo nombre sirva también
+en `comite_ideas` vía el mixin compartido (`core/reasignacion.py`).
 
 ## Contenido
 
-| Archivo | Qué es |
-|---|---|
-| `fase3-4-modelos-router-schemas.diff.preview` | Diff unificado contra `HEAD` de los 6 archivos que tocarían las Fases 3 y 4 |
-| `b4d17c9e5a20_responsables_area_y_origen_asignacion.py.preview` | Migración de Fase 3 |
-| `c9f3e820d114_historial_idea_y_reasignacion_con_aceptacion.py.preview` | Migración de Fase 4 |
-| `cab-departamento-y-criterios-ia.md.preview` | Diseño de CAB por departamento. Su sección 2 (criterios de entrevista por departamento) quedó **superseded** por `cascada-revisor-y-criterios-texto.md.preview` — ver nota al inicio de la sección 2 de este archivo |
-| `cascada-revisor-y-criterios-texto.md.preview` | Diseño de la cascada de asignación de revisor (jefe inmediato → CAB del departamento → pendiente_asignacion) y migración de los 3 tipos de criterios de IA (clasificación, asignación de revisor, entrevista) de documento subido a texto editable con scoping por departamento. Depende de que se resuelvan primero las decisiones abiertas 1 y 2 de `cab-departamento-y-criterios-ia.md.preview` |
-| `9c2f4e71a0b3_criterios_ia_texto_y_entrevista.py.preview` | Migración de la tabla `criterios_ia` (reemplaza `documentos_criterio`) |
-| `fase-permisos-por-rol.md.preview` | Inventario completo de checks de autorización hardcodeados por rol + diseño de tabla `permisos_rol` configurable. Las 6 decisiones abiertas ya quedaron resueltas — incluye tabla de verificación fila por fila (22 checks) |
-| `4d81f6c93a52_permisos_rol.py.preview` | Migración de la tabla `permisos_rol` + seed exacto (4 filas) que replica el comportamiento actual sin cambios |
+| Archivo | Qué es | Estado |
+|---|---|---|
+| `fase3-4-modelos-router-schemas.diff.preview` | Diseño original de Fases 3 y 4 | Aplicado (con el rename de `propuesto_a_id`, ver arriba) |
+| `b4d17c9e5a20_responsables_area_y_origen_asignacion.py.preview` | Migración de Fase 3 | Aplicada — copia real en `v1.0/alembic/versions/` |
+| `c9f3e820d114_historial_idea_y_reasignacion_con_aceptacion.py.preview` | Migración de Fase 4 | Aplicada — copia real en `v1.0/alembic/versions/` |
+| `cab-departamento-y-criterios-ia.md.preview` | Diseño original de CAB por departamento | Sección 1 superseded por `cab-departamento-reasignacion.md.preview` (aplicado); sección 2 superseded por `cascada-revisor-y-criterios-texto.md.preview` (sin aplicar) |
+| `cascada-revisor-y-criterios-texto.md.preview` | Cascada de asignación de revisor (jefe inmediato → CAB del departamento → pendiente_asignacion) y migración de criterios de IA a texto | Sección 2 (criterios en texto) YA APLICADA — ver `9c2f4e71a0b3` abajo. Sección 1 (la cascada en sí) sigue sin aplicar |
+| `9c2f4e71a0b3_criterios_ia_texto_y_entrevista.py.preview` | Migración de la tabla `criterios_ia` | Aplicada |
+| `fase-permisos-por-rol.md.preview` | Módulo de permisos por rol configurable | Aplicado |
+| `4d81f6c93a52_permisos_rol.py.preview` | Migración de `permisos_rol` | Aplicada |
+| `cab-departamento-reasignacion.md.preview` | Implementación final de CAB por departamento + reasignación (mixin compartido con `revision/`) | **Aplicado en este commit** |
+| `a3f7c9e21d68_cab_por_departamento_y_reasignacion.py.preview` | Migración de `miembros_cab_departamentos` + reasignación en `comite_ideas` | **Aplicada en este commit** — copia real en `v1.0/alembic/versions/` |
 
-### Advertencia sobre el diff
+## Lo que sigue genuinamente pendiente de diseño/aprobación
 
-El diff se tomó contra `HEAD`, y **dos de los seis archivos
-(`v1.0/usuarios/models.py` y `v1.0/revision/models.py`) tenían cambios en
-vuelo sin commitear que no son parte de las Fases 3/4**. Esos hunks están
-incluidos en el archivo. Son ~9 líneas en total y se distinguen porque no
-mencionan `ResponsableArea`, `origen_asignacion`, `revisor_propuesto` ni
-`HistorialIdea`.
-
-Los otros cuatro archivos (`revision/service.py`, `revision/router.py`,
-`revision/schemas.py`, `ideas/models.py`) sí contienen solo Fase 3/4.
-
-## Para aplicarlo cuando se apruebe
-
-```bash
-git apply diseno-pendiente/fase3-4-modelos-router-schemas.diff.preview
-cp diseno-pendiente/b4d17c9e5a20_*.preview \
-   v1.0/alembic/versions/b4d17c9e5a20_responsables_area_y_origen_asignacion.py
-cp diseno-pendiente/c9f3e820d114_*.preview \
-   v1.0/alembic/versions/c9f3e820d114_historial_idea_y_reasignacion_con_aceptacion.py
-```
-
-El diff se generó antes del commit de Fase 1b, que también toca
-`ideas/router.py` — no hay solape de archivos entre ambos, pero si `git
-apply` falla por contexto, `git apply -3` resuelve con merge de tres vías.
-
-**No corras `alembic upgrade head` sin antes cargar `responsables_area`.**
-La tabla nace vacía y, mientras lo esté, `_buscar_encargado_activo` no
-resuelve a nadie y toda idea nueva cae en `pendiente_asignacion`. Falta el
-seed con los datos reales del negocio.
-
-## Decisiones abiertas
-
-- Fase 3: ¿el mapeo determinístico cubre también idea → CAB en
-  `clasificacion/`, o solo el revisor?
+- La cascada de asignación de revisor en sí (`cascada-revisor-y-criterios-texto.md.preview`,
+  sección 1: jefe inmediato → CAB del departamento → pendiente_asignacion)
+  — no se aplicó, sigue siendo diseño.
+- Fase 3: ¿el mapeo determinístico (`responsables_area`, todavía inactivo)
+  cubre también idea → CAB en `clasificacion/`, o solo el revisor?
 - Fase 4: el plazo de expiración quedó en 3 días **hábiles**, sin calendario
   de feriados (no existe en el sistema para los 4 países).
 - Fase 4: la notificación es solo badge in-app. `notificaciones/` tiene el
   envío de correo en stub, sin credenciales SMTP.
+- El seed real de `responsables_area` con los datos del negocio — sin él,
+  Fase 3 sigue siendo esquema inactivo (ver desviación deliberada arriba).

@@ -1,0 +1,121 @@
+"""CAB por departamento: miembros_cab_departamentos + reasignacion en comite_ideas
+
+Revision ID: a3f7c9e21d68
+Revises: c9f3e820d114
+Create Date: (pendiente de aplicar)
+
+CONTEXTO: ver diseno-pendiente/cab-departamento-reasignacion.md.preview
+(diseño aprobado). Depende de que Fase 3/4 (b4d17c9e5a20, c9f3e820d114)
+se apliquen primero — esta migración asume que existen `historial_idea`
+y `tipo_evento_idea`.
+
+Cubre:
+1. Tabla miembros_cab_departamentos (N:M MiembroCAB <-> Departamento).
+2. Columnas nuevas en comite_ideas: asignado_a_id + las 4 columnas del
+   mixin de reasignación (propuesto_a_id, reasignacion_solicitada_por_id,
+   fecha_solicitud_reasignacion, rechazos_reasignacion_consecutivos).
+3. Nuevo valor 'pendiente_aceptacion_reasignacion' en el enum
+   estado_comite (VARCHAR + CHECK constraint en SQL Server — hay que
+   recrear el CHECK).
+
+NO IMPLEMENTAR SIN CONFIRMAR ANTES el rename revisor_propuesto_id ->
+propuesto_a_id en la migración de Fase 4 (c9f3e820d114) — ver decisión
+menor #1 del documento de diseño. Esta migración asume que ese rename
+ya se hizo ahí.
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = "a3f7c9e21d68"
+down_revision = "c9f3e820d114"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    # --- 1. miembros_cab_departamentos ---
+    op.create_table(
+        "miembros_cab_departamentos",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("miembro_cab_id", sa.Integer(), sa.ForeignKey("miembros_cab.id"), nullable=False),
+        sa.Column("departamento_id", sa.Integer(), sa.ForeignKey("departamentos.id"), nullable=False),
+        sa.UniqueConstraint("miembro_cab_id", "departamento_id", name="uq_miembro_cab_departamento"),
+    )
+
+    # --- 2. columnas nuevas en comite_ideas ---
+    op.add_column("comite_ideas", sa.Column("asignado_a_id", sa.Integer(), sa.ForeignKey("usuarios.id"), nullable=True))
+    op.add_column("comite_ideas", sa.Column("propuesto_a_id", sa.Integer(), sa.ForeignKey("usuarios.id"), nullable=True))
+    op.add_column(
+        "comite_ideas",
+        sa.Column("reasignacion_solicitada_por_id", sa.Integer(), sa.ForeignKey("usuarios.id"), nullable=True),
+    )
+    op.add_column(
+        "comite_ideas", sa.Column("fecha_solicitud_reasignacion", sa.DateTime(timezone=True), nullable=True)
+    )
+    op.add_column(
+        "comite_ideas",
+        sa.Column(
+            "rechazos_reasignacion_consecutivos", sa.Integer(), nullable=False, server_default="0"
+        ),
+    )
+
+    # --- 3. nuevo valor en el enum estado_comite ---
+    # SQL Server no tiene ENUM nativo — sa.Enum se materializa como
+    # VARCHAR + CHECK constraint autogenerado. Hay que ubicar el nombre
+    # real del CHECK (SQLAlchemy lo genera con un patrón predecible pero
+    # no garantizado en todas las versiones) y recrearlo con el valor
+    # nuevo agregado. Mismo patrón de búsqueda dinámica que
+    # 1a2b3c4d5e6f_fix_encoding_varchar_a_nvarchar.py ya usa para
+    # constraints UNIQUE autogenerados.
+    conn = op.get_bind()
+    fila = conn.execute(
+        sa.text(
+            """
+            SELECT cc.name
+            FROM sys.check_constraints cc
+            JOIN sys.columns col ON col.object_id = cc.parent_object_id AND col.column_id = cc.parent_column_id
+            JOIN sys.tables t ON t.object_id = cc.parent_object_id
+            WHERE t.name = 'comite_ideas' AND col.name = 'estado'
+            """
+        )
+    ).fetchone()
+    if fila is not None:
+        op.drop_constraint(fila[0], "comite_ideas", type_="check")
+    op.create_check_constraint(
+        "ck_comite_ideas_estado",
+        "comite_ideas",
+        "estado IN ('pendiente', 'aprobada', 'rechazada', 'pendiente_aceptacion_reasignacion')",
+    )
+
+
+def downgrade() -> None:
+    """ADVERTENCIA: cualquier ComiteIdea en estado
+    'pendiente_aceptacion_reasignacion' al momento del downgrade queda en
+    un estado que el CHECK viejo no permite — resolver esas filas
+    (aceptar/rechazar/expirar todas las propuestas pendientes) antes de
+    correr este downgrade."""
+    conn = op.get_bind()
+    fila = conn.execute(
+        sa.text(
+            """
+            SELECT cc.name
+            FROM sys.check_constraints cc
+            JOIN sys.columns col ON col.object_id = cc.parent_object_id AND col.column_id = cc.parent_column_id
+            JOIN sys.tables t ON t.object_id = cc.parent_object_id
+            WHERE t.name = 'comite_ideas' AND col.name = 'estado'
+            """
+        )
+    ).fetchone()
+    if fila is not None:
+        op.drop_constraint(fila[0], "comite_ideas", type_="check")
+    op.create_check_constraint(
+        "ck_comite_ideas_estado", "comite_ideas", "estado IN ('pendiente', 'aprobada', 'rechazada')"
+    )
+
+    op.drop_column("comite_ideas", "rechazos_reasignacion_consecutivos")
+    op.drop_column("comite_ideas", "fecha_solicitud_reasignacion")
+    op.drop_column("comite_ideas", "reasignacion_solicitada_por_id")
+    op.drop_column("comite_ideas", "propuesto_a_id")
+    op.drop_column("comite_ideas", "asignado_a_id")
+
+    op.drop_table("miembros_cab_departamentos")

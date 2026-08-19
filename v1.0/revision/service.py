@@ -11,6 +11,12 @@ tiene ningún usuario con rol habilitado para revisar activo, se cae al
 comportamiento original: mismo departamento del autor. Si tampoco hay
 nadie ahí, la idea queda "pendiente_asignacion" para que un admin la
 asigne manualmente. Esto NUNCA debe romper el envío de la idea.
+
+NOTA sobre Fase 3 (ResponsableArea): la tabla existe (ver
+usuarios/models.py:ResponsableArea) pero _buscar_encargado_activo NO la
+usa todavía — sigue resolviendo por departamento+rol directamente, a
+propósito, porque la tabla nace vacía sin el seed de datos reales del
+negocio. Cuando ese seed exista, este es el único punto a cambiar.
 """
 
 import logging
@@ -19,11 +25,13 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from core.claude_client import _CRITERIOS_ASIGNACION_REVISOR_DEFAULT, asignar_revisor_ia
+from core.reasignacion import aplicar_rechazo_reasignacion as _aplicar_rechazo_generico
+from core.reasignacion import expirar_reasignaciones_vencidas as _expirar_generico
 from criterios.models import CriterioIA, TipoCriterio
-from ideas.models import Idea, MensajeEntrevista
+from ideas.models import Idea, MensajeEntrevista, TipoEventoIdea
 from permisos.models import ClavePermiso
 from permisos.service import rol_tiene_permiso
-from revision.models import EstadoRevision, RevisionIdea
+from revision.models import EstadoRevision, OrigenAsignacion, RevisionIdea
 from usuarios.models import Departamento, RolUsuario, Usuario
 
 logger = logging.getLogger(__name__)
@@ -65,8 +73,7 @@ def _criterio_asignacion_revisor(db: Session) -> str:
     criterios/ y usaba siempre la constante hardcodeada
     _CRITERIOS_ASIGNACION_REVISOR_DEFAULT, un bug real (el criterio se
     guardaba pero nunca se usaba). Se mantiene ese default solo como
-    respaldo para el momento en que todavía no exista ninguna fila activa
-    (ej. justo después de aplicar la migración de criterios_ia)."""
+    respaldo para el momento en que todavía no exista ninguna fila activa."""
     criterio = (
         db.query(CriterioIA)
         .filter_by(tipo=TipoCriterio.asignacion_revisor, departamento_id=None, activo=True)
@@ -96,6 +103,39 @@ def _asignar_por_ia(db: Session, idea: Idea, departamentos: list[Departamento]) 
         return None
 
 
+def aplicar_rechazo_reasignacion(
+    db: Session, revision: RevisionIdea, *, actor_id: int, tipo_evento: TipoEventoIdea, detalle: str | None = None
+) -> None:
+    """Wrapper sobre core/reasignacion.py con los parámetros propios de
+    RevisionIdea — segundo rechazo consecutivo suelta al pool
+    (pendiente_asignacion, revisor_id=None) para que un admin decida."""
+    _aplicar_rechazo_generico(
+        db,
+        revision,
+        campo_responsable="revisor_id",
+        estado_sin_asignar=EstadoRevision.pendiente_asignacion,
+        estado_normal=EstadoRevision.pendiente_revision,
+        idea_id=revision.idea_id,
+        actor_id=actor_id,
+        tipo_evento=tipo_evento,
+        detalle=detalle,
+    )
+    if revision.estado == EstadoRevision.pendiente_asignacion:
+        revision.origen_asignacion = OrigenAsignacion.sin_asignar
+
+
+def expirar_reasignaciones_vencidas(db: Session) -> list[RevisionIdea]:
+    return _expirar_generico(
+        db,
+        RevisionIdea,
+        estado_pendiente_aceptacion=EstadoRevision.pendiente_aceptacion_reasignacion,
+        campo_responsable="revisor_id",
+        estado_sin_asignar=EstadoRevision.pendiente_asignacion,
+        estado_normal=EstadoRevision.pendiente_revision,
+        tipo_evento_expirada=TipoEventoIdea.reasignacion_expirada,
+    )
+
+
 def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
     departamentos = db.query(Departamento).all()
     resultado_ia = _asignar_por_ia(db, idea, departamentos)
@@ -104,6 +144,7 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
     departamento_sugerido_id = None
     justificacion_ia = None
     acepto_sugerencia_autor = None
+    origen = OrigenAsignacion.sin_asignar
 
     if resultado_ia is not None:
         departamento_ia = next(
@@ -117,12 +158,16 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
             if idea.sugerencia_revisor_autor is not None:
                 acepto_sugerencia_autor = resultado_ia["acepto_sugerencia_autor"]
             revisor = _buscar_encargado_activo(db, departamento_ia.id)
+            if revisor is not None:
+                origen = OrigenAsignacion.mapeo_area
 
     if revisor is None and idea.autor.departamento_id is not None:
         # Fallback: mismo departamento del autor (comportamiento original),
         # ya sea porque la IA falló o porque el departamento que sugirió no
         # tiene ningún usuario con rol habilitado para revisar activo todavía.
         revisor = _buscar_encargado_activo(db, idea.autor.departamento_id)
+        if revisor is not None:
+            origen = OrigenAsignacion.fallback_departamento_autor
 
     ahora = datetime.now(timezone.utc)
     revision = RevisionIdea(
@@ -133,6 +178,7 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
         departamento_sugerido_ia_id=departamento_sugerido_id,
         justificacion_ia=justificacion_ia,
         acepto_sugerencia_autor=acepto_sugerencia_autor,
+        origen_asignacion=origen,
     )
     db.add(revision)
     return revision

@@ -23,7 +23,7 @@ export default function FormularioMiembroCAB({
     try {
       const miembro = await agregarMiembroCab({ usuario_id: Number(usuarioId), tipo_cab: tipoCab })
       const usuario = personas.find((p) => p.id === Number(usuarioId))
-      if (usuario) onAgregado({ ...miembro, usuario })
+      if (usuario) onAgregado({ ...miembro, usuario, departamentos: [] })
       setUsuarioId('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo agregar al comité')

@@ -104,6 +104,11 @@ export interface MiembroCAB {
 
 export interface MiembroCABDetalle extends MiembroCAB {
   usuario: Usuario
+  departamentos: Departamento[]
+}
+
+export interface ActualizarDepartamentosMiembroCABRequest {
+  departamento_ids: number[]
 }
 
 export interface UsuarioCreate {

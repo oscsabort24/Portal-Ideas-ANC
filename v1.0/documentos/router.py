@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from comites.models import ComiteIdea
+from comites.service import departamentos_visibles
 from core.database import get_db
 from documentos import schemas
 from documentos.archivos import sanitizar_nombre_archivo
@@ -34,9 +35,11 @@ def _validar_acceso(db: Session, idea: Idea, usuario: usuarios_models.Usuario) -
     """Acceso de LECTURA (listar/descargar/preview/pdf/zip): admin, el autor,
     el encargado_area asignado como revisor de la idea (mismo criterio que
     _puede_generar, para que pueda ver /pendientes y generar el one-pager
-    desde su vista de revisión), o un miembro del CAB correspondiente si la
-    idea ya llegó a comité. Ver _puede_generar() para el permiso de generar/
-    regenerar, que es más restrictivo que este."""
+    desde su vista de revisión), o un miembro del CAB con acceso al
+    departamento del autor si la idea ya llegó a comité (antes era por
+    tipo_cab — migrado a departamento para no dejar una inconsistencia
+    con comites/router.py:_validar_acceso_comite_idea). Ver _puede_generar()
+    para el permiso de generar/regenerar, que es más restrictivo que este."""
     if usuario.rol == usuarios_models.RolUsuario.admin:
         return
     if idea.autor_id == usuario.id:
@@ -49,16 +52,8 @@ def _validar_acceso(db: Session, idea: Idea, usuario: usuarios_models.Usuario) -
 
     comite = db.query(ComiteIdea).filter_by(idea_id=idea.id).first()
     if comite:
-        es_miembro = (
-            db.query(usuarios_models.MiembroCAB)
-            .filter(
-                usuarios_models.MiembroCAB.usuario_id == usuario.id,
-                usuarios_models.MiembroCAB.tipo_cab == comite.tipo_cab,
-            )
-            .first()
-            is not None
-        )
-        if es_miembro:
+        departamentos = departamentos_visibles(db, usuario)
+        if departamentos is None or idea.autor.departamento_id in departamentos:
             return
 
     raise HTTPException(status_code=403, detail="No tienes acceso a los documentos de esta idea")

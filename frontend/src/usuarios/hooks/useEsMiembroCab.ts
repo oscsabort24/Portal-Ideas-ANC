@@ -1,30 +1,33 @@
 import { useEffect, useState } from 'react'
+import { misDepartamentos } from '../../comites/api'
+import type { DepartamentoVisible } from '../../comites/types'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import { listarMiembrosCab } from '../api'
-import type { TipoCAB } from '../types'
 
 /**
- * Resuelve las membresías de CAB del usuario actual (client-side, no hay
- * endpoint dedicado "mis membresías" — se filtra la lista completa por
- * usuario_id, igual que ya hacía ColaComite.tsx).
+ * Resuelve si el usuario actual es miembro de algún CAB y qué
+ * departamentos ve (ver comites/router.py:mis-departamentos, que ya
+ * resuelve el filtro real en el backend — este hook solo decide si
+ * mostrar la sección de CAB en el sidebar y el badge de departamentos).
  *
- * Compartido entre ColaComite.tsx (para saber a qué colas tiene acceso) y
- * Sidebar.tsx (para decidir si mostrar el link "Cola del comité"), para no
- * duplicar esta lógica en dos lugares.
+ * Ya no expone `tiposCab` — el filtro por tipo_cab desapareció con
+ * CAB por departamento (ver diseno-pendiente/cab-departamento-reasignacion.md.preview).
  */
 export function useEsMiembroCab() {
   const usuarioActual = useUsuarioActual()
-  const [tiposCab, setTiposCab] = useState<TipoCAB[] | null>(null)
+  const [esMiembroCab, setEsMiembroCab] = useState<boolean | null>(null)
+  const [departamentos, setDepartamentos] = useState<DepartamentoVisible[] | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelado = false
     setCargando(true)
-    listarMiembrosCab()
-      .then((membresias) => {
+    Promise.all([listarMiembrosCab(), misDepartamentos()])
+      .then(([membresias, deptos]) => {
         if (cancelado) return
-        setTiposCab(membresias.filter((m) => m.usuario_id === usuarioActual.id).map((m) => m.tipo_cab))
+        setEsMiembroCab(membresias.some((m) => m.usuario_id === usuarioActual.id))
+        setDepartamentos(deptos)
       })
       .catch((err) => {
         if (cancelado) return
@@ -39,8 +42,8 @@ export function useEsMiembroCab() {
   }, [usuarioActual.id])
 
   return {
-    tiposCab,
-    esMiembro: (tiposCab?.length ?? 0) > 0,
+    esMiembro: esMiembroCab ?? false,
+    departamentos: departamentos ?? [],
     cargando,
     error,
   }

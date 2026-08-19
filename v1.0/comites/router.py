@@ -6,49 +6,66 @@ from sqlalchemy.orm import Session
 from comites import schemas
 from comites.models import ComiteIdea, EstadoComite, RiceEvaluacion
 from comites.rice import calcular_calificacion
+from comites.service import departamentos_visibles
 from core.database import get_db
+from core.reasignacion import aplicar_rechazo_reasignacion as _aplicar_rechazo_generico
+from ideas.models import HistorialIdea, Idea, TipoEventoIdea
 from usuarios import models as usuarios_models
 from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/comites", tags=["comites"])
 
 
-def _validar_acceso_comite(
-    db: Session, usuario: usuarios_models.Usuario, tipo_cab: usuarios_models.TipoCAB
-) -> None:
+def _validar_acceso_comite_idea(db: Session, usuario: usuarios_models.Usuario, comite: ComiteIdea) -> None:
     if usuario.rol == usuarios_models.RolUsuario.admin:
         return
-    es_miembro = (
-        db.query(usuarios_models.MiembroCAB)
-        .filter(
-            usuarios_models.MiembroCAB.usuario_id == usuario.id,
-            usuarios_models.MiembroCAB.tipo_cab == tipo_cab,
+    if not usuario.activo:
+        raise HTTPException(status_code=403, detail="Usuario inactivo")
+    departamentos = departamentos_visibles(db, usuario)
+    if departamentos is None:
+        return
+    if comite.idea.autor.departamento_id not in departamentos:
+        raise HTTPException(
+            status_code=403, detail="Esta idea no pertenece a un departamento asignado a tu CAB"
         )
-        .first()
-        is not None
-    )
-    if not es_miembro or not usuario.activo:
-        raise HTTPException(status_code=403, detail=f"No eres miembro del CAB de {tipo_cab.value}")
 
 
-@router.get("/{tipo_cab}/cola", response_model=list[schemas.ComiteIdeaDetalleOut])
+@router.get("/cola", response_model=list[schemas.ComiteIdeaDetalleOut])
 def cola_comite(
-    tipo_cab: usuarios_models.TipoCAB,
     estado: EstadoComite = EstadoComite.pendiente,
     db: Session = Depends(get_db),
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
-    # estado por defecto sigue siendo "pendiente" (comportamiento de siempre,
-    # la cola real de trabajo) — el parámetro se agregó para que
-    # PaginaInicio.tsx pueda pedir estado=aprobada y calcular el conteo de
-    # "Aprobadas" del dashboard sin necesitar un endpoint nuevo.
-    _validar_acceso_comite(db, usuario_actual, tipo_cab)
-    return (
+    # estado por defecto sigue siendo "pendiente" — el parámetro se agregó
+    # para que PaginaInicio.tsx pueda pedir estado=aprobada y calcular el
+    # conteo de "Aprobadas" del dashboard sin necesitar un endpoint nuevo.
+    departamentos = departamentos_visibles(db, usuario_actual)
+    if departamentos == []:
+        return []
+    query = (
         db.query(ComiteIdea)
-        .filter(ComiteIdea.tipo_cab == tipo_cab, ComiteIdea.estado == estado)
-        .order_by(ComiteIdea.creado_en.asc(), ComiteIdea.id.asc())
-        .all()
+        .join(Idea, ComiteIdea.idea_id == Idea.id)
+        .join(usuarios_models.Usuario, Idea.autor_id == usuarios_models.Usuario.id)
+        .filter(ComiteIdea.estado == estado)
     )
+    if departamentos is not None:
+        query = query.filter(usuarios_models.Usuario.departamento_id.in_(departamentos))
+    return query.order_by(ComiteIdea.creado_en.asc(), ComiteIdea.id.asc()).all()
+
+
+@router.get("/mis-departamentos", response_model=list[schemas.DepartamentoVisibleOut])
+def mis_departamentos(
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    """Para el badge "Viendo: X, Y" del frontend. None (admin / comodín)
+    se traduce a la lista completa de departamentos — a un admin o a un
+    miembro comodín igual les sirve saber que ven "todos"."""
+    ids = departamentos_visibles(db, usuario_actual)
+    query = db.query(usuarios_models.Departamento)
+    if ids is not None:
+        query = query.filter(usuarios_models.Departamento.id.in_(ids))
+    return query.order_by(usuarios_models.Departamento.nombre).all()
 
 
 def _obtener_comite(db: Session, idea_id: int) -> ComiteIdea:
@@ -65,7 +82,7 @@ def aprobar(
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
     comite = _obtener_comite(db, idea_id)
-    _validar_acceso_comite(db, usuario_actual, comite.tipo_cab)
+    _validar_acceso_comite_idea(db, usuario_actual, comite)
     if comite.estado != EstadoComite.pendiente:
         raise HTTPException(status_code=400, detail="Esta idea ya fue resuelta por el comité")
 
@@ -91,7 +108,7 @@ def rechazar(
         raise HTTPException(status_code=400, detail="El motivo de rechazo no puede estar vacío")
 
     comite = _obtener_comite(db, idea_id)
-    _validar_acceso_comite(db, usuario_actual, comite.tipo_cab)
+    _validar_acceso_comite_idea(db, usuario_actual, comite)
     if comite.estado != EstadoComite.pendiente:
         raise HTTPException(status_code=400, detail="Esta idea ya fue resuelta por el comité")
 
@@ -104,6 +121,125 @@ def rechazar(
     return comite
 
 
+def _validar_miembro_destino(db: Session, comite: ComiteIdea, usuario_id: int) -> usuarios_models.Usuario:
+    destino = db.get(usuarios_models.Usuario, usuario_id)
+    if not destino:
+        raise HTTPException(status_code=404, detail="El usuario destino no existe")
+    if not destino.activo:
+        raise HTTPException(status_code=400, detail=f"'{destino.nombre}' está inactivo")
+    # Debe ser miembro de CAB con acceso al departamento de ESTA idea
+    # (comodín sin filas también califica) — mismo criterio que
+    # _validar_acceso_comite_idea, evaluado para la persona destino.
+    if destino.rol == usuarios_models.RolUsuario.admin:
+        return destino
+    departamentos = departamentos_visibles(db, destino)
+    if departamentos is not None and comite.idea.autor.departamento_id not in departamentos:
+        raise HTTPException(
+            status_code=400, detail=f"'{destino.nombre}' no tiene acceso al departamento de esta idea"
+        )
+    return destino
+
+
+@router.post("/{idea_id}/reasignar", response_model=schemas.ComiteIdeaOut)
+def reasignar(
+    idea_id: int,
+    payload: schemas.ReasignarComiteRequest,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    """PROPONE que otro miembro del CAB atienda esta idea — no ejecuta el
+    cambio de inmediato, mismo patrón que revision/router.py:reasignar."""
+    comite = _obtener_comite(db, idea_id)
+    _validar_acceso_comite_idea(db, usuario_actual, comite)
+    if comite.estado != EstadoComite.pendiente:
+        raise HTTPException(status_code=400, detail="Esta idea no está pendiente en el comité")
+
+    nuevo = _validar_miembro_destino(db, comite, payload.nuevo_asignado_id)
+    if nuevo.id == comite.asignado_a_id:
+        raise HTTPException(status_code=400, detail="Esa persona ya está asignada a esta idea")
+
+    db.add(
+        HistorialIdea(
+            idea_id=idea_id,
+            tipo_evento=TipoEventoIdea.reasignacion_solicitada,
+            actor_id=usuario_actual.id,
+            sujeto_id=nuevo.id,
+            detalle=payload.motivo,
+        )
+    )
+    comite.propuesto_a_id = nuevo.id
+    comite.reasignacion_solicitada_por_id = usuario_actual.id
+    comite.fecha_solicitud_reasignacion = datetime.now(timezone.utc)
+    comite.estado = EstadoComite.pendiente_aceptacion_reasignacion
+    db.commit()
+    db.refresh(comite)
+    return comite
+
+
+def _validar_propuesto(comite: ComiteIdea, usuario_actual: usuarios_models.Usuario) -> None:
+    if comite.estado != EstadoComite.pendiente_aceptacion_reasignacion:
+        raise HTTPException(status_code=400, detail="Esta idea no tiene una reasignación pendiente de respuesta")
+    if comite.propuesto_a_id != usuario_actual.id:
+        raise HTTPException(status_code=403, detail="No sos la persona propuesta para esta idea")
+
+
+@router.post("/{idea_id}/aceptar-reasignacion", response_model=schemas.ComiteIdeaOut)
+def aceptar_reasignacion(
+    idea_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    comite = _obtener_comite(db, idea_id)
+    _validar_propuesto(comite, usuario_actual)
+
+    db.add(
+        HistorialIdea(
+            idea_id=idea_id,
+            tipo_evento=TipoEventoIdea.reasignacion_aceptada,
+            actor_id=usuario_actual.id,
+            sujeto_id=usuario_actual.id,
+        )
+    )
+    comite.asignado_a_id = usuario_actual.id
+    comite.propuesto_a_id = None
+    comite.reasignacion_solicitada_por_id = None
+    comite.fecha_solicitud_reasignacion = None
+    comite.rechazos_reasignacion_consecutivos = 0
+    comite.estado = EstadoComite.pendiente
+    db.commit()
+    db.refresh(comite)
+    return comite
+
+
+@router.post("/{idea_id}/rechazar-reasignacion", response_model=schemas.ComiteIdeaOut)
+def rechazar_reasignacion(
+    idea_id: int,
+    payload: schemas.RechazarReasignacionComiteRequest,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    comite = _obtener_comite(db, idea_id)
+    _validar_propuesto(comite, usuario_actual)
+
+    # ComiteIdea no tiene un estado "sin asignar" bloqueante equivalente a
+    # pendiente_asignacion — al segundo rechazo consecutivo simplemente
+    # vuelve a pendiente con asignado_a_id=None (ver core/reasignacion.py).
+    _aplicar_rechazo_generico(
+        db,
+        comite,
+        campo_responsable="asignado_a_id",
+        estado_sin_asignar=None,
+        estado_normal=EstadoComite.pendiente,
+        idea_id=idea_id,
+        actor_id=usuario_actual.id,
+        tipo_evento=TipoEventoIdea.reasignacion_rechazada,
+        detalle=payload.motivo,
+    )
+    db.commit()
+    db.refresh(comite)
+    return comite
+
+
 @router.get("/{idea_id}/rice", response_model=schemas.RiceEvaluacionOut)
 def obtener_rice(
     idea_id: int,
@@ -111,7 +247,7 @@ def obtener_rice(
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
     comite = _obtener_comite(db, idea_id)
-    _validar_acceso_comite(db, usuario_actual, comite.tipo_cab)
+    _validar_acceso_comite_idea(db, usuario_actual, comite)
 
     rice = db.query(RiceEvaluacion).filter_by(comite_idea_id=comite.id).first()
     if not rice:
@@ -127,10 +263,8 @@ def guardar_rice(
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
     comite = _obtener_comite(db, idea_id)
-    _validar_acceso_comite(db, usuario_actual, comite.tipo_cab)
+    _validar_acceso_comite_idea(db, usuario_actual, comite)
 
-    # calificacion/prioridad SIEMPRE se recalculan acá, nunca se acepta un
-    # valor del cliente para esos dos campos (ver comites/rice.py).
     calificacion, prioridad = calcular_calificacion(
         alcance_departamentos=payload.alcance_departamentos,
         impacto=payload.impacto,

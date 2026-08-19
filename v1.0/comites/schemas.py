@@ -21,18 +21,42 @@ class ComiteIdeaOut(BaseModel):
     tipo_cab: TipoCAB
     estado: EstadoComite
     motivo_rechazo: str | None
+    asignado_a_id: int | None
     aprobada_o_rechazada_por_id: int | None
     fecha_resolucion: datetime | None
     creado_en: datetime
 
+    # Ciclo de reasignación (ver core/reasignacion.py) — el frontend usa
+    # propuesto_a_id + estado para mostrar el banner de aceptar/rechazar.
+    propuesto_a_id: int | None
+    reasignacion_solicitada_por_id: int | None
+    fecha_solicitud_reasignacion: datetime | None
+
 
 class ComiteIdeaDetalleOut(ComiteIdeaOut):
     idea: IdeaOut
+    asignado_a: UsuarioResumenOut | None
     aprobada_o_rechazada_por: UsuarioResumenOut | None
+    propuesto_a: UsuarioResumenOut | None
+    reasignacion_solicitada_por: UsuarioResumenOut | None
 
 
 class RechazarRequest(BaseModel):
     motivo_rechazo: str = Field(min_length=1)
+
+
+class ReasignarComiteRequest(BaseModel):
+    nuevo_asignado_id: int
+    motivo: str | None = None
+
+
+class RechazarReasignacionComiteRequest(BaseModel):
+    motivo: str = Field(min_length=1)
+
+
+class DepartamentoVisibleOut(BaseModel):
+    id: int
+    nombre: str
 
 
 class RiceEvaluacionRequest(BaseModel):

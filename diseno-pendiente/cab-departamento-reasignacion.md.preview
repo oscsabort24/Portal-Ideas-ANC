@@ -1,0 +1,557 @@
+# Diseño pendiente — CAB por departamento con reasignación (implementación final)
+
+Este documento **no es código activo**, ni las migraciones que referencia.
+Reemplaza/concreta la sección 1 de `cab-departamento-y-criterios-ia.md.preview`
+(CAB por departamento) con las 4 decisiones ya resueltas. La sección 2 de
+aquel documento sigue **superseded** por `cascada-revisor-y-criterios-texto.md.preview`
+(sin cambios).
+
+## Estado de partida (confirmado en el código real, no asumido)
+
+- Fase 3/4 (`fase3-4-modelos-router-schemas.diff.preview` +
+  `b4d17c9e5a20...preview` + `c9f3e820d114...preview`) sigue **sin
+  aplicar** — `revision/router.py` real todavía reasigna de forma
+  inmediata, sin aceptación. Ya rebasé `b4d17c9e5a20.down_revision` de
+  `7e2c4a91b3f0` a `9c2f4e71a0b3` (el head real hoy) — es el único cambio
+  que le hice a ese archivo, el resto de su contenido sigue igual.
+- `MiembroCAB` (`usuarios/models.py:93-106`) solo tiene `usuario_id` +
+  `tipo_cab` — sin `departamento_id`, confirmado sin cambios.
+- `ComiteIdea` (`comites/models.py`) no tiene ningún campo de "a quién
+  está asignada" — es visible a cualquier miembro del CAB del `tipo_cab`
+  correspondiente. Este es el campo que hay que agregar.
+- `documentos/router.py:_validar_acceso` (línea ~45-62) valida acceso de
+  CAB comparando `MiembroCAB.tipo_cab == comite.tipo_cab` — es el otro
+  punto, además de `comites/router.py`, que hay que migrar a
+  departamento (confirmado, no hay un tercer lugar más allá de estos dos
+  módulos + los usos de `_validar_acceso_comite`, ya inventariados en el
+  diagnóstico anterior).
+
+---
+
+## 1. Modelo de datos
+
+### 1.1 `MiembroCABDepartamento` (N:M)
+
+```python
+# usuarios/models.py
+
+class MiembroCABDepartamento(Base):
+    """Un departamento que un miembro de CAB puede ver/atender.
+
+    N:M explícito — un miembro puede cubrir varios departamentos.
+    Ausencia de TODA fila para un MiembroCAB (no solo "ninguna de estas")
+    se interpreta como "ve todos los departamentos" (comodín admin-like
+    dentro del CAB) — ver _departamentos_visibles en comites/router.py.
+    """
+
+    __tablename__ = "miembros_cab_departamentos"
+    __table_args__ = (
+        UniqueConstraint("miembro_cab_id", "departamento_id", name="uq_miembro_cab_departamento"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    miembro_cab_id: Mapped[int] = mapped_column(ForeignKey("miembros_cab.id"), nullable=False)
+    departamento_id: Mapped[int] = mapped_column(ForeignKey("departamentos.id"), nullable=False)
+
+    miembro_cab: Mapped["MiembroCAB"] = relationship(back_populates="departamentos")
+    departamento: Mapped["Departamento"] = relationship()
+
+
+class MiembroCAB(Base):
+    __tablename__ = "miembros_cab"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    tipo_cab: Mapped[TipoCAB] = mapped_column(Enum(TipoCAB, name="tipo_cab"), nullable=False)  # sigue como metadata (decisión 1)
+
+    usuario: Mapped["Usuario"] = relationship(back_populates="membresias_cab")
+    departamentos: Mapped[list["MiembroCABDepartamento"]] = relationship(
+        back_populates="miembro_cab", cascade="all, delete-orphan"
+    )
+```
+
+### 1.2 Mixin de reasignación compartido (Opción 1, ya aprobada)
+
+```python
+# core/reasignacion.py — mismo módulo que alojará las 2 funciones genéricas (ver 2)
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer
+from sqlalchemy.orm import Mapped, mapped_column, declared_attr, relationship
+
+
+class MixinReasignacion:
+    """4 columnas de estado del ciclo propuesta -> aceptación/rechazo,
+    compartidas entre RevisionIdea y ComiteIdea. Quien es "el actual
+    responsable" NO vive acá — cada tabla mantiene su propio nombre
+    (RevisionIdea.revisor_id, ComiteIdea.asignado_a_id) porque ya existía
+    antes (revisor_id) o tiene semántica propia (asignado_a_id). Las
+    funciones de core/reasignacion.py reciben ese nombre como parámetro.
+
+    Decisión de nomenclatura (ver "Decisiones menores" al final): el
+    campo que en el diseño original de Fase 4 se llamaba
+    `revisor_propuesto_id` pasa a llamarse `propuesto_a_id` acá, para que
+    el mismo nombre tenga sentido tanto en RevisionIdea (¿a quién le
+    propongo la revisión?) como en ComiteIdea (¿a quién le propongo la
+    idea dentro del CAB?). Como Fase 4 todavía no se aplicó, este cambio
+    de nombre no rompe nada existente.
+    """
+
+    propuesto_a_id: Mapped[int | None]
+    reasignacion_solicitada_por_id: Mapped[int | None]
+    fecha_solicitud_reasignacion: Mapped[datetime | None]
+    rechazos_reasignacion_consecutivos: Mapped[int]
+
+    @declared_attr
+    def propuesto_a_id(cls) -> Mapped[int | None]:
+        return mapped_column(ForeignKey("usuarios.id"), nullable=True)
+
+    @declared_attr
+    def reasignacion_solicitada_por_id(cls) -> Mapped[int | None]:
+        return mapped_column(ForeignKey("usuarios.id"), nullable=True)
+
+    @declared_attr
+    def fecha_solicitud_reasignacion(cls) -> Mapped[datetime | None]:
+        return mapped_column(DateTime(timezone=True), nullable=True)
+
+    @declared_attr
+    def rechazos_reasignacion_consecutivos(cls) -> Mapped[int]:
+        return mapped_column(Integer, default=0, server_default="0", nullable=False)
+
+    @declared_attr
+    def propuesto_a(cls):
+        return relationship("Usuario", foreign_keys=[cls.propuesto_a_id])
+
+    @declared_attr
+    def reasignacion_solicitada_por(cls):
+        return relationship("Usuario", foreign_keys=[cls.reasignacion_solicitada_por_id])
+```
+
+`RevisionIdea` (Fase 4, ya rebasada) hereda de `MixinReasignacion` en vez
+de declarar sus propias 4 columnas — mismo efecto, un solo lugar de
+definición. `ComiteIdea` hereda del mismo mixin y agrega `asignado_a_id`:
+
+```python
+# comites/models.py
+
+class ComiteIdea(Base, MixinReasignacion):
+    __tablename__ = "comite_ideas"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id"), unique=True, nullable=False)
+    tipo_cab: Mapped[TipoCAB] = mapped_column(Enum(TipoCAB, name="tipo_cab_comite"), nullable=False)
+    estado: Mapped[EstadoComite] = mapped_column(Enum(EstadoComite, name="estado_comite"), nullable=False)
+    motivo_rechazo: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+
+    # NUEVO — mirror de RevisionIdea.revisor_id. Nullable: una idea recién
+    # clasificada puede no tener asignado todavía (mismo criterio que
+    # revisor_id, "pendiente_asignacion" no existe como estado propio de
+    # ComiteIdea porque hoy CUALQUIER miembro visible puede tomarla — con
+    # asignado_a_id NULL simplemente sigue siendo "de cualquiera del
+    # departamento", no bloquea aprobar/rechazar).
+    asignado_a_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    asignado_a: Mapped["Usuario | None"] = relationship(foreign_keys=[asignado_a_id])
+
+    aprobada_o_rechazada_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    aprobada_o_rechazada_por: Mapped["Usuario | None"] = relationship(foreign_keys=[aprobada_o_rechazada_por_id])
+    fecha_resolucion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    idea: Mapped["Idea"] = relationship()
+
+
+class EstadoComite(str, enum.Enum):
+    pendiente = "pendiente"
+    aprobada = "aprobada"
+    rechazada = "rechazada"
+    pendiente_aceptacion_reasignacion = "pendiente_aceptacion_reasignacion"  # NUEVO
+```
+
+**Importante — `asignado_a_id` es opcional a propósito**: a diferencia de
+`RevisionIdea.revisor_id` (donde `NULL` = `pendiente_asignacion`, un
+estado bloqueante), acá `NULL` simplemente significa "todavía no se le
+asignó a alguien específico, cualquier miembro visible puede tomarla" —
+no bloquea `aprobar`/`rechazar`. La reasignación (proponer/aceptar/rechazar)
+solo tiene sentido una vez que HAY alguien asignado — si `asignado_a_id`
+es `NULL`, "reasignar" en realidad es "asignar por primera vez", mismo
+patrón que `POST /revision/{id}/asignar` vs `reasignar`.
+
+---
+
+## 2. `core/reasignacion.py` — las 2 funciones genéricas
+
+```python
+"""Política compartida de reasignación con aceptación/rechazo, usada por
+revision/ y comites/ — ver diseno-pendiente/cab-departamento-reasignacion.md.preview.
+
+Generalizado desde el diseño original de Fase 4 (pensado solo para
+RevisionIdea): las funciones reciben el modelo, el nombre del campo
+"responsable actual", y los valores de estado a usar, en vez de tener
+RevisionIdea/EstadoRevision hardcodeados.
+"""
+
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from ideas.models import HistorialIdea, TipoEventoIdea
+
+DIAS_HABILES_ACEPTACION_REASIGNACION = 3
+MAX_RECHAZOS_CONSECUTIVOS = 2
+
+
+def sumar_dias_habiles(desde: datetime, dias: int) -> datetime:
+    resultado = desde
+    restantes = dias
+    while restantes > 0:
+        resultado += timedelta(days=1)
+        if resultado.weekday() < 5:
+            restantes -= 1
+    return resultado
+
+
+def aplicar_rechazo_reasignacion(
+    db: Session,
+    entidad: Any,
+    *,
+    campo_responsable: str,  # "revisor_id" o "asignado_a_id"
+    estado_sin_asignar,  # EstadoRevision.pendiente_asignacion o None (ver nota)
+    estado_normal,  # EstadoRevision.pendiente_revision o EstadoComite.pendiente
+    idea_id: int,
+    actor_id: int,
+    tipo_evento: TipoEventoIdea,
+    detalle: str | None = None,
+) -> None:
+    """Política única de rechazo — compartida por rechazo explícito y expiración.
+
+    Primer rechazo: vuelve al estado normal, el responsable actual no cambia
+    (nunca se movió mientras la propuesta estaba pendiente). Segundo rechazo
+    consecutivo: se limpia el responsable (si estado_sin_asignar existe) para
+    que un admin decida, o simplemente vuelve a "sin asignado específico"
+    (ComiteIdea, donde no hay un estado bloqueante equivalente — ver 1.2).
+    """
+    db.add(
+        HistorialIdea(
+            idea_id=idea_id,
+            tipo_evento=tipo_evento,
+            actor_id=actor_id,
+            sujeto_id=getattr(entidad, "propuesto_a_id"),
+            detalle=detalle,
+        )
+    )
+
+    entidad.rechazos_reasignacion_consecutivos += 1
+    entidad.propuesto_a_id = None
+    entidad.reasignacion_solicitada_por_id = None
+    entidad.fecha_solicitud_reasignacion = None
+
+    if entidad.rechazos_reasignacion_consecutivos >= MAX_RECHAZOS_CONSECUTIVOS:
+        if estado_sin_asignar is not None:
+            setattr(entidad, campo_responsable, None)
+            entidad.estado = estado_sin_asignar
+        else:
+            # ComiteIdea: no existe un estado "sin asignar" bloqueante —
+            # simplemente se limpia asignado_a_id y vuelve a pendiente,
+            # visible a cualquier miembro del departamento otra vez.
+            setattr(entidad, campo_responsable, None)
+            entidad.estado = estado_normal
+    else:
+        entidad.estado = estado_normal
+
+
+def expirar_reasignaciones_vencidas(
+    db: Session,
+    modelo,
+    *,
+    estado_pendiente_aceptacion,
+    campo_responsable: str,
+    estado_sin_asignar,
+    estado_normal,
+    tipo_evento_expirada: TipoEventoIdea,
+) -> list:
+    ahora = datetime.now(timezone.utc)
+    pendientes = (
+        db.query(modelo)
+        .filter(
+            modelo.estado == estado_pendiente_aceptacion,
+            modelo.fecha_solicitud_reasignacion.isnot(None),
+        )
+        .all()
+    )
+
+    expiradas = []
+    for entidad in pendientes:
+        limite = sumar_dias_habiles(entidad.fecha_solicitud_reasignacion, DIAS_HABILES_ACEPTACION_REASIGNACION)
+        if ahora < limite:
+            continue
+        aplicar_rechazo_reasignacion(
+            db,
+            entidad,
+            campo_responsable=campo_responsable,
+            estado_sin_asignar=estado_sin_asignar,
+            estado_normal=estado_normal,
+            idea_id=entidad.idea_id,
+            actor_id=entidad.reasignacion_solicitada_por_id or getattr(entidad, campo_responsable),
+            tipo_evento=tipo_evento_expirada,
+            detalle=f"Sin respuesta en {DIAS_HABILES_ACEPTACION_REASIGNACION} días hábiles",
+        )
+        expiradas.append(entidad)
+    return expiradas
+```
+
+`revision/service.py` y `comites/service.py` (nuevo, ver 4) llaman estas
+2 funciones con sus propios parámetros — la política (2 rechazos → pool,
+3 días hábiles) queda escrita una sola vez.
+
+---
+
+## 3. `comites/router.py` — filtro por departamento + reasignación
+
+```python
+def _departamentos_visibles(db: Session, usuario: Usuario) -> list[int] | None:
+    """None = ve todos los departamentos (admin, o miembro de CAB sin
+    filas en miembros_cab_departamentos — ausencia de filas = "todos",
+    igual que se diseñó en cab-departamento-y-criterios-ia.md.preview)."""
+    if usuario.rol == RolUsuario.admin:
+        return None
+    membresias = db.query(MiembroCAB).filter_by(usuario_id=usuario.id).all()
+    if not membresias:
+        return []  # no es miembro de ningún CAB
+    ids = {d.departamento_id for m in membresias for d in m.departamentos}
+    return list(ids) if ids else None  # sin filas = todos
+
+
+def _validar_acceso_comite_idea(db: Session, usuario: Usuario, comite: ComiteIdea) -> None:
+    if usuario.rol == RolUsuario.admin:
+        return
+    if not usuario.activo:
+        raise HTTPException(status_code=403, detail="Usuario inactivo")
+    departamentos = _departamentos_visibles(db, usuario)
+    if departamentos is None:
+        return
+    if comite.idea.autor.departamento_id not in departamentos:
+        raise HTTPException(status_code=403, detail="Esta idea no pertenece a un departamento asignado a tu CAB")
+
+
+@router.get("/cola", response_model=list[schemas.ComiteIdeaDetalleOut])  # antes: /{tipo_cab}/cola
+def cola_comite(
+    estado: EstadoComite = EstadoComite.pendiente,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+):
+    departamentos = _departamentos_visibles(db, usuario_actual)
+    if departamentos == []:
+        return []
+    query = (
+        db.query(ComiteIdea)
+        .join(Idea, ComiteIdea.idea_id == Idea.id)
+        .join(Usuario, Idea.autor_id == Usuario.id)
+        .filter(ComiteIdea.estado == estado)
+    )
+    if departamentos is not None:
+        query = query.filter(Usuario.departamento_id.in_(departamentos))
+    return query.order_by(ComiteIdea.creado_en.asc(), ComiteIdea.id.asc()).all()
+```
+
+`aprobar`/`rechazar`/`obtener_rice`/`guardar_rice` cambian su llamada de
+`_validar_acceso_comite(db, usuario, comite.tipo_cab)` a
+`_validar_acceso_comite_idea(db, usuario, comite)` — sin cambios en el
+resto de su lógica.
+
+### Nuevos endpoints — reasignación dentro del CAB (mismo patrón que Fase 4)
+
+```python
+@router.post("/{idea_id}/reasignar", response_model=schemas.ComiteIdeaOut)
+def reasignar(
+    idea_id: int,
+    payload: schemas.ReasignarComiteRequest,  # {nuevo_asignado_id, motivo?}
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+):
+    comite = _obtener_comite(db, idea_id)
+    _validar_acceso_comite_idea(db, usuario_actual, comite)
+    if comite.estado != EstadoComite.pendiente:
+        raise HTTPException(status_code=400, detail="Esta idea no está pendiente en el comité")
+
+    nuevo = _validar_miembro_destino(db, comite, payload.nuevo_asignado_id)  # valida MiembroCABDepartamento del depto de la idea
+    db.add(HistorialIdea(idea_id=idea_id, tipo_evento=TipoEventoIdea.reasignacion_solicitada,
+                          actor_id=usuario_actual.id, sujeto_id=nuevo.id, detalle=payload.motivo))
+    comite.propuesto_a_id = nuevo.id
+    comite.reasignacion_solicitada_por_id = usuario_actual.id
+    comite.fecha_solicitud_reasignacion = datetime.now(timezone.utc)
+    comite.estado = EstadoComite.pendiente_aceptacion_reasignacion
+    db.commit()
+    db.refresh(comite)
+    return comite
+
+
+@router.post("/{idea_id}/aceptar-reasignacion", response_model=schemas.ComiteIdeaOut)
+def aceptar_reasignacion(idea_id: int, db: Session = Depends(get_db),
+                          usuario_actual: Usuario = Depends(obtener_usuario_actual)):
+    comite = _obtener_comite(db, idea_id)
+    if comite.estado != EstadoComite.pendiente_aceptacion_reasignacion:
+        raise HTTPException(status_code=400, detail="Esta idea no tiene una reasignación pendiente de respuesta")
+    if comite.propuesto_a_id != usuario_actual.id:
+        raise HTTPException(status_code=403, detail="No sos la persona propuesta")
+    db.add(HistorialIdea(idea_id=idea_id, tipo_evento=TipoEventoIdea.reasignacion_aceptada,
+                          actor_id=usuario_actual.id, sujeto_id=usuario_actual.id))
+    comite.asignado_a_id = usuario_actual.id
+    comite.propuesto_a_id = None
+    comite.reasignacion_solicitada_por_id = None
+    comite.fecha_solicitud_reasignacion = None
+    comite.rechazos_reasignacion_consecutivos = 0
+    comite.estado = EstadoComite.pendiente
+    db.commit()
+    db.refresh(comite)
+    return comite
+
+
+@router.post("/{idea_id}/rechazar-reasignacion", response_model=schemas.ComiteIdeaOut)
+def rechazar_reasignacion(idea_id: int, payload: schemas.RechazarReasignacionRequest,
+                           db: Session = Depends(get_db),
+                           usuario_actual: Usuario = Depends(obtener_usuario_actual)):
+    comite = _obtener_comite(db, idea_id)
+    if comite.propuesto_a_id != usuario_actual.id:
+        raise HTTPException(status_code=403, detail="No sos la persona propuesta")
+    aplicar_rechazo_reasignacion(
+        db, comite, campo_responsable="asignado_a_id",
+        estado_sin_asignar=None,  # ComiteIdea no tiene estado bloqueante equivalente
+        estado_normal=EstadoComite.pendiente,
+        idea_id=idea_id, actor_id=usuario_actual.id,
+        tipo_evento=TipoEventoIdea.reasignacion_rechazada, detalle=payload.motivo,
+    )
+    db.commit()
+    db.refresh(comite)
+    return comite
+```
+
+`_validar_miembro_destino` valida que el destino tenga `MiembroCABDepartamento`
+cubriendo el departamento del autor de esa idea (o sea comodín sin filas) —
+mismo criterio de elegibilidad que `_departamentos_visibles`.
+
+---
+
+## 4. `documentos/router.py` — migrar `_validar_acceso` a departamento
+
+```python
+# antes:
+comite = db.query(ComiteIdea).filter_by(idea_id=idea.id).first()
+if comite:
+    es_miembro = db.query(MiembroCAB).filter(
+        MiembroCAB.usuario_id == usuario.id, MiembroCAB.tipo_cab == comite.tipo_cab,
+    ).first() is not None
+    if es_miembro:
+        return
+
+# después:
+comite = db.query(ComiteIdea).filter_by(idea_id=idea.id).first()
+if comite:
+    departamentos = _departamentos_visibles_reusado(db, usuario)  # mover a un helper compartido, ver nota
+    if departamentos is None or idea.autor.departamento_id in (departamentos or []):
+        return
+```
+
+**Nota de implementación**: `_departamentos_visibles` hoy viviría en
+`comites/router.py` — para que `documentos/router.py` la reuse sin
+importar de un router ajeno, se mueve a `comites/service.py` (nuevo
+archivo, ya que `comites/` hoy no tiene `service.py`) y ambos routers
+importan de ahí.
+
+---
+
+## 5. Frontend
+
+### `ColaComite.tsx`
+- Sin pestañas por `tipo_cab` (se elimina `TODOS_LOS_TIPOS`, `ETIQUETA_TIPO_CAB`, el `useState<TipoCAB | null>`).
+- Llama `GET /comites/cola` (sin tipo en la ruta).
+- Header nuevo: badge "Viendo: {departamentos.join(', ')}" (decisión 4) — usa un endpoint nuevo `GET /comites/mis-departamentos` (devuelve nombres, no solo ids) o se resuelve del lado del cliente con `listarDepartamentos()` + los ids que ya expone `useEsMiembroCab` (ver abajo). Recomiendo el endpoint dedicado — evita que el frontend tenga que replicar la lógica de "sin filas = todos".
+- Cada card de idea en la cola gana un botón "Reasignar" (visible si `comite.estado === 'pendiente'`) que abre un selector de miembros de CAB elegibles para el departamento de esa idea, y un banner "Te propusieron esta idea" con Aceptar/Rechazar cuando `comite.estado === 'pendiente_aceptacion_reasignacion'` y `comite.propuesto_a_id === usuarioActual.id` — mismo patrón visual que `MisRevisiones.tsx` ya tiene para revisión.
+
+### `useEsMiembroCab.ts`
+```ts
+export function useEsMiembroCab() {
+  // ...
+  return {
+    esMiembro: (departamentos?.length ?? 0) > 0 || esComodin,
+    departamentos, // [{id, nombre}] resueltos por el backend, no más tiposCab
+    cargando, error,
+  }
+}
+```
+Deja de exponer `tiposCab: TipoCAB[]` — nadie en el frontend necesita
+distinguir por tipo de CAB para decidir qué mostrar, todo el filtro real
+ya lo hace el backend.
+
+### Nueva pantalla — admin asigna departamentos a miembros de CAB (decisión 5)
+
+Extiende `ListaMiembrosCAB.tsx` (no una pantalla nueva — mismo lugar
+donde ya se gestiona la membresía): cada fila de miembro gana un
+multi-select de departamentos (mismo componente de selección que ya use
+`FormularioMiembroCAB.tsx` para elegir `tipo_cab`, replicado para
+departamentos). Nuevos endpoints:
+
+```python
+# usuarios/router.py
+@router.put("/cab/{miembro_id}/departamentos", response_model=list[schemas.DepartamentoOut])
+def actualizar_departamentos_miembro_cab(
+    miembro_id: int, payload: schemas.ActualizarDepartamentosRequest,  # {departamento_ids: list[int]}
+    db: Session = Depends(get_db), _admin: models.Usuario = Depends(requerir_admin),
+):
+    miembro = db.get(models.MiembroCAB, miembro_id)
+    if not miembro:
+        raise HTTPException(status_code=404, detail="Membresía de CAB no encontrada")
+    db.query(models.MiembroCABDepartamento).filter_by(miembro_cab_id=miembro_id).delete()
+    for depto_id in payload.departamento_ids:
+        db.add(models.MiembroCABDepartamento(miembro_cab_id=miembro_id, departamento_id=depto_id))
+    db.commit()
+    return db.query(models.Departamento).filter(models.Departamento.id.in_(payload.departamento_ids)).all()
+```
+
+---
+
+## 6. Migración
+
+Ver `diseno-pendiente/a3f7c9e21d68_cab_por_departamento_y_reasignacion.py.preview`
+— encadenada después de `c9f3e820d114` (Fase 4, ya rebasada). Cubre:
+tabla `miembros_cab_departamentos`, columnas nuevas en `comite_ideas`
+(`asignado_a_id` + las 4 del mixin), y el valor nuevo
+`pendiente_aceptacion_reasignacion` en el enum `estado_comite`.
+
+**No incluye** el rebase de `RevisionIdea` al mixin (eso es un cambio de
+la migración de Fase 4 misma, `c9f3e820d114`, que ya define esas 4
+columnas con los nombres viejos `revisor_propuesto_id` etc. — si se
+adopta el rename a `propuesto_a_id` de la sección 1.2, esa migración
+también se edita antes de aplicar. Ver decisión menor #1 abajo.
+
+---
+
+## Decisiones menores de implementación (no de negocio) — para tu revisión
+
+1. **Rename `revisor_propuesto_id` → `propuesto_a_id`** en el diseño de
+   Fase 4, para que el mixin tenga sentido con un solo nombre en ambas
+   tablas. Alternativa: dejar `RevisionIdea.revisor_propuesto_id` como
+   está y que el mixin use ESE nombre distinto por tabla vía
+   `declared_attr` parametrizado (más complejo, sin beneficio real dado
+   que Fase 4 no se aplicó todavía — recomiendo el rename simple).
+2. **`ComiteIdea` no tiene un estado "sin asignar" bloqueante** (a
+   diferencia de `pendiente_asignacion` en `RevisionIdea`) — al segundo
+   rechazo consecutivo, `asignado_a_id` simplemente vuelve a `NULL` y el
+   estado vuelve a `pendiente` (visible a cualquiera del departamento de
+   nuevo), en vez de caer en un pool separado para que un admin la
+   resuelva a mano. Asumí esto porque `ComiteIdea` nunca tuvo ese
+   concepto — si el negocio quiere un pool de "CAB sin resolver" análogo,
+   habría que agregar un estado nuevo.
+3. **Endpoint `GET /comites/mis-departamentos`** para el badge del
+   frontend — no estaba pedido explícitamente, lo agrego porque sin él
+   el frontend tendría que replicar la lógica de "sin filas = todos" que
+   hoy solo vive en el backend. Se puede omitir y resolver client-side si
+   preferís no sumar un endpoint.
+4. **`comites/service.py` nuevo** (hoy `comites/` solo tiene
+   `router.py`, `models.py`, `rice.py`) para alojar
+   `_departamentos_visibles` compartida con `documentos/router.py` — es
+   la ubicación más natural, pero es una decisión de organización de
+   carpetas, no de lógica.
+5. **`GET /comites/{tipo_cab}/cola` pasa a `GET /comites/cola`** — cambio
+   de contrato de API (ya señalado en el diseño anterior, lo confirmo de
+   nuevo acá porque es parte de este entregable ahora, no de una fase
+   futura).

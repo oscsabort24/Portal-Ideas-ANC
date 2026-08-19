@@ -21,6 +21,14 @@ export function pedirCambios(ideaId: number, retroalimentacion: string): Promise
   return apiPost<Revision>(`/revision/${ideaId}/pedir-cambios`, { retroalimentacion })
 }
 
-export function reasignar(ideaId: number, nuevoRevisorId: number): Promise<Revision> {
-  return apiPost<Revision>(`/revision/${ideaId}/reasignar`, { nuevo_revisor_id: nuevoRevisorId })
+export function reasignar(ideaId: number, nuevoRevisorId: number, motivo?: string): Promise<Revision> {
+  return apiPost<Revision>(`/revision/${ideaId}/reasignar`, { nuevo_revisor_id: nuevoRevisorId, motivo })
+}
+
+export function aceptarReasignacion(ideaId: number): Promise<Revision> {
+  return apiPost<Revision>(`/revision/${ideaId}/aceptar-reasignacion`, {})
+}
+
+export function rechazarReasignacion(ideaId: number, motivo: string): Promise<Revision> {
+  return apiPost<Revision>(`/revision/${ideaId}/rechazar-reasignacion`, { motivo })
 }

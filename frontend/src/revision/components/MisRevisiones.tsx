@@ -5,10 +5,10 @@ import DocumentosGenerados from '../../documentos/components/DocumentosGenerados
 import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
 import { listarUsuarios, rolesConPermiso } from '../../usuarios/api'
 import type { Usuario } from '../../usuarios/types'
-import { aprobar, misRevisiones, pedirCambios, reasignar } from '../api'
+import { aceptarReasignacion, aprobar, misRevisiones, pedirCambios, reasignar, rechazarReasignacion } from '../api'
 import type { RevisionDetalle } from '../types'
 
-type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' } | null
+type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' | 'rechazar-reasignacion' } | null
 
 export default function MisRevisiones() {
   const usuarioActual = useUsuarioActual()
@@ -85,17 +85,45 @@ export default function MisRevisiones() {
 
   async function handleReasignar(ideaId: number) {
     if (!nuevoRevisorId) return
-    const nombreDestino = usuarios.find((u) => u.id === Number(nuevoRevisorId))?.nombre ?? 'este usuario'
-    const confirmado = window.confirm(`¿Reasignar esta idea a ${nombreDestino}?`)
-    if (!confirmado) return
     setEnviando(true)
     setError(null)
     try {
       await reasignar(ideaId, Number(nuevoRevisorId))
-      setRevisiones((prev) => prev.filter((r) => r.idea_id !== ideaId))
+      // Ya no se ejecuta de inmediato — queda propuesta, esperando que la
+      // persona destino acepte o rechace. Sigue apareciendo en esta lista
+      // (revisor_id no cambió), solo cambia de estado.
+      cargar()
       cerrarAccion()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo reasignar la idea')
+      setError(err instanceof Error ? err.message : 'No se pudo proponer la reasignación')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function handleAceptarReasignacion(ideaId: number) {
+    setEnviando(true)
+    setError(null)
+    try {
+      await aceptarReasignacion(ideaId)
+      cargar()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo aceptar la reasignación')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function handleRechazarReasignacion(ideaId: number) {
+    if (!retroalimentacion.trim()) return
+    setEnviando(true)
+    setError(null)
+    try {
+      await rechazarReasignacion(ideaId, retroalimentacion.trim())
+      cargar()
+      cerrarAccion()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo rechazar la reasignación')
     } finally {
       setEnviando(false)
     }
@@ -122,6 +150,11 @@ export default function MisRevisiones() {
                       {r.revisor_id !== null && r.revisor_id !== usuarioActual.id && (
                         <span className="idea-estado-badge" style={{ marginLeft: 8 }}>
                           Asignada a: {r.revisor?.nombre ?? '—'}
+                        </span>
+                      )}
+                      {r.estado === 'pendiente_aceptacion_reasignacion' && r.propuesto_a_id === usuarioActual.id && (
+                        <span className="idea-estado-badge" style={{ marginLeft: 8 }}>
+                          Requiere tu respuesta
                         </span>
                       )}
                     </div>
@@ -161,6 +194,46 @@ export default function MisRevisiones() {
                 </div>
               )}
 
+              {r.estado === 'pendiente_aceptacion_reasignacion' && r.propuesto_a_id === usuarioActual.id && (
+                <div className="persona-card-actions" style={{ marginTop: 12 }}>
+                  {accionAbierta?.revisionId === r.id && accionAbierta.tipo === 'rechazar-reasignacion' ? (
+                    <div className="form-field">
+                      <label className="form-label" htmlFor={`motivo-rechazo-${r.id}`}>Motivo del rechazo</label>
+                      <textarea
+                        id={`motivo-rechazo-${r.id}`}
+                        className="form-input"
+                        rows={3}
+                        value={retroalimentacion}
+                        onChange={(e) => setRetroalimentacion(e.target.value)}
+                        placeholder="Por qué no podés atender esta idea..."
+                      />
+                      <div className="form-row" style={{ marginTop: 10 }}>
+                        <button
+                          className="btn-primary"
+                          disabled={!retroalimentacion.trim() || enviando}
+                          onClick={() => handleRechazarReasignacion(r.idea_id)}
+                        >
+                          {enviando ? 'Enviando...' : 'Confirmar rechazo'}
+                        </button>
+                        <button className="btn-secundario" onClick={cerrarAccion}>Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button className="btn-small exito" onClick={() => handleAceptarReasignacion(r.idea_id)}>
+                        Aceptar
+                      </button>
+                      <button
+                        className="btn-small peligro"
+                        onClick={() => setAccionAbierta({ revisionId: r.id, tipo: 'rechazar-reasignacion' })}
+                      >
+                        Rechazar
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
               {accionAbierta?.revisionId === r.id && accionAbierta.tipo === 'reasignar' && (
                 <div className="form-field" style={{ marginTop: 12 }}>
                   <label className="form-label" htmlFor={`reasignar-${r.id}`}>Reasignar a</label>
@@ -188,7 +261,7 @@ export default function MisRevisiones() {
                 </div>
               )}
 
-              {!accionAbierta && (
+              {!accionAbierta && r.estado === 'pendiente_revision' && (
                 <div className="persona-card-actions" style={{ marginTop: 12 }}>
                   <button className="btn-small exito" onClick={() => handleAprobar(r.idea_id)}>
                     Aprobar

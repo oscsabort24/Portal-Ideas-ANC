@@ -95,3 +95,8 @@ class MiembroCABOut(MiembroCABCreate):
 
 class MiembroCABDetalleOut(MiembroCABOut):
     usuario: UsuarioOut
+    departamentos: list[DepartamentoOut] = []
+
+
+class ActualizarDepartamentosMiembroCABRequest(BaseModel):
+    departamento_ids: list[int]

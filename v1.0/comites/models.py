@@ -6,24 +6,30 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from core.database import Base
+from core.reasignacion import MixinReasignacion
 from ideas.models import Idea  # noqa: F401 — necesario para resolver la relación ComiteIdea.idea
-from usuarios.models import TipoCAB, Usuario  # noqa: F401 — necesario para resolver la relación .aprobada_o_rechazada_por
+from usuarios.models import TipoCAB, Usuario  # noqa: F401 — necesario para resolver relaciones a Usuario
 
 
 class EstadoComite(str, enum.Enum):
     pendiente = "pendiente"
     aprobada = "aprobada"
     rechazada = "rechazada"
+    # Se propuso pasarle la idea a otro miembro del CAB y todavía no
+    # respondió. asignado_a_id SIGUE siendo la persona original mientras
+    # esto está pendiente — mismo criterio que RevisionIdea.
+    pendiente_aceptacion_reasignacion = "pendiente_aceptacion_reasignacion"
 
 
-class ComiteIdea(Base):
+class ComiteIdea(Base, MixinReasignacion):
     """Paso de una idea clasificada por la cola del CAB correspondiente.
 
     Se crea automáticamente cuando un admin clasifica la idea (ver
     comites/service.py:crear_comite_idea_para_idea, llamado desde
     clasificacion/router.py:clasificar). `tipo_cab` se copia de la
-    clasificación al momento de crearse, para no depender de un join
-    extra después.
+    clasificación al momento de crearse — hoy es metadata pura, el
+    filtro de acceso real es por departamento (ver
+    comites/service.py:_departamentos_visibles).
 
     El orden de llegada a la cola es simplemente `creado_en` (+ `id`
     como desempate) — no hay un contador explícito porque cada fila se
@@ -33,6 +39,9 @@ class ComiteIdea(Base):
     El estado final "aprobada_por_cab" vive únicamente en `estado` de
     este modelo — no se refleja en Idea.estado, que describe solo la
     etapa de captura (borrador/enviada).
+
+    Hereda de MixinReasignacion (core/reasignacion.py) las 4 columnas del
+    ciclo propuesta -> aceptación/rechazo — compartidas con RevisionIdea.
     """
 
     __tablename__ = "comite_ideas"
@@ -43,8 +52,16 @@ class ComiteIdea(Base):
     estado: Mapped[EstadoComite] = mapped_column(Enum(EstadoComite, name="estado_comite"), nullable=False)
     motivo_rechazo: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
 
+    # NUEVO — mirror de RevisionIdea.revisor_id. Nullable: NULL significa
+    # "sin asignar a alguien específico todavía", NO bloquea
+    # aprobar/rechazar (a diferencia de RevisionIdea.revisor_id=NULL, que
+    # sí es un estado bloqueante) — cualquier miembro visible del
+    # departamento puede seguir actuando sobre la idea.
+    asignado_a_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    asignado_a: Mapped["Usuario | None"] = relationship(foreign_keys=[asignado_a_id])
+
     aprobada_o_rechazada_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
-    aprobada_o_rechazada_por: Mapped["Usuario | None"] = relationship()
+    aprobada_o_rechazada_por: Mapped["Usuario | None"] = relationship(foreign_keys=[aprobada_o_rechazada_por_id])
     fecha_resolucion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     creado_en: Mapped[datetime] = mapped_column(

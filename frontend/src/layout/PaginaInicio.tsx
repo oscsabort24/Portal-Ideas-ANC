@@ -9,9 +9,6 @@ import { useEsMiembroCab } from '../usuarios/hooks/useEsMiembroCab'
 import { useMisPermisos } from '../usuarios/hooks/useMisPermisos'
 import type { Idea } from '../ideas/types'
 import type { RevisionDetalle } from '../revision/types'
-import type { TipoCAB } from '../usuarios/types'
-
-const TODOS_TIPOS_CAB: TipoCAB[] = ['innovacion', 'transformacion_digital']
 
 function diasDesde(iso: string): number {
   const dias = (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)
@@ -80,7 +77,7 @@ function useDatosPersona(
 function useDatosSistema(
   activo: boolean,
   esAdmin: boolean,
-  tiposCabPropios: TipoCAB[],
+  esMiembroCab: boolean,
 ): { datos: DatosSistema | null; cargando: boolean } {
   const [datos, setDatos] = useState<DatosSistema | null>(null)
   const [cargando, setCargando] = useState(activo)
@@ -90,21 +87,19 @@ function useDatosSistema(
     let cancelado = false
     setCargando(true)
 
-    const tiposCabAConsultar: TipoCAB[] = esAdmin ? TODOS_TIPOS_CAB : tiposCabPropios
-    const tieneAlgunCab = tiposCabAConsultar.length > 0
+    // colaComite ya no recibe tipo_cab — el backend filtra por
+    // departamento(s) visibles del usuario, una sola llamada alcanza
+    // (antes había que pedir una por cada tipo_cab propio).
+    const tieneAlgunCab = esAdmin || esMiembroCab
 
     Promise.all([
       listarIdeas(),
       esAdmin ? revisionesSinAsignar() : Promise.resolve(null),
       esAdmin ? misRevisiones() : Promise.resolve(null),
-      tieneAlgunCab
-        ? Promise.all(tiposCabAConsultar.map((t) => colaComite(t, 'pendiente')))
-        : Promise.resolve(null),
-      tieneAlgunCab
-        ? Promise.all(tiposCabAConsultar.map((t) => colaComite(t, 'aprobada')))
-        : Promise.resolve(null),
+      tieneAlgunCab ? colaComite('pendiente') : Promise.resolve(null),
+      tieneAlgunCab ? colaComite('aprobada') : Promise.resolve(null),
     ])
-      .then(([ideas, sinAsignar, todasPendientesRevision, colasPendientes, colasAprobadas]) => {
+      .then(([ideas, sinAsignar, todasPendientesRevision, colaPendiente, colaAprobada]) => {
         if (cancelado) return
 
         let pendientesPorPersona: DatosSistema['pendientesPorPersona'] = null
@@ -130,8 +125,8 @@ function useDatosSistema(
           borrador: ideas.filter((i) => i.estado === 'borrador').length,
           enviada: ideas.filter((i) => i.estado === 'enviada').length,
           sinAsignar: sinAsignar === null ? null : sinAsignar.length,
-          enComite: colasPendientes === null ? null : colasPendientes.reduce((acc, c) => acc + c.length, 0),
-          aprobadas: colasAprobadas === null ? null : colasAprobadas.reduce((acc, c) => acc + c.length, 0),
+          enComite: colaPendiente === null ? null : colaPendiente.length,
+          aprobadas: colaAprobada === null ? null : colaAprobada.length,
           pendientesPorPersona,
         })
       })
@@ -145,8 +140,7 @@ function useDatosSistema(
     return () => {
       cancelado = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activo, esAdmin, tiposCabPropios.join(',')])
+  }, [activo, esAdmin, esMiembroCab])
 
   return { datos, cargando }
 }
@@ -158,12 +152,12 @@ export default function PaginaInicio() {
   const { veTodasLasIdeas, esRevisorElegible } = useMisPermisos()
   const mostrarDashboardSistema = esAdmin || veTodasLasIdeas
 
-  const { tiposCab } = useEsMiembroCab()
+  const { esMiembro: esMiembroCab } = useEsMiembroCab()
   const { datos: datosPersona } = useDatosPersona(usuarioActual.rol, esRevisorElegible)
   const { datos: datosSistema, cargando: cargandoSistema } = useDatosSistema(
     mostrarDashboardSistema,
     esAdmin,
-    tiposCab ?? [],
+    esMiembroCab,
   )
 
   const sinNadaEspecial = !mostrarDashboardSistema

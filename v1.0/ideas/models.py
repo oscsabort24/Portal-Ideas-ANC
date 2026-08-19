@@ -24,6 +24,18 @@ class OrigenPregunta(str, enum.Enum):
     comite = "comite"
 
 
+class TipoEventoIdea(str, enum.Enum):
+    """Tipos de evento de HistorialIdea. Arranca cubriendo solo el ciclo
+    de reasignación con aceptación (usado tanto por revision/ como por
+    comites/, ver core/reasignacion.py) — pensado para crecer y absorber
+    después otros eventos de GET /ideas/{id}/linea-tiempo."""
+
+    reasignacion_solicitada = "reasignacion_solicitada"
+    reasignacion_aceptada = "reasignacion_aceptada"
+    reasignacion_rechazada = "reasignacion_rechazada"
+    reasignacion_expirada = "reasignacion_expirada"
+
+
 class Idea(Base):
     __tablename__ = "ideas"
 
@@ -137,3 +149,32 @@ class PreguntaIdea(Base):
 
     idea: Mapped["Idea"] = relationship()
     preguntada_por: Mapped["Usuario"] = relationship()
+
+
+class HistorialIdea(Base):
+    """Bitácora append-only y tipada de eventos sobre una idea — compartida
+    entre revision/ y comites/ (ver core/reasignacion.py). FK a ideas.id
+    (no a revision_ideas.id/comite_ideas.id) para que sirva a ambos
+    contextos sin depender de cuál de los dos generó el evento.
+
+    - `actor_id`  = quién EJECUTÓ la acción (quién reasignó, quién aceptó).
+    - `sujeto_id` = a quién AFECTA (la persona propuesta).
+    """
+
+    __tablename__ = "historial_idea"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id"), nullable=False, index=True)
+    tipo_evento: Mapped[TipoEventoIdea] = mapped_column(
+        Enum(TipoEventoIdea, name="tipo_evento_idea"), nullable=False
+    )
+    actor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    sujeto_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    detalle: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    idea: Mapped["Idea"] = relationship()
+    actor: Mapped["Usuario"] = relationship(foreign_keys=[actor_id])
+    sujeto: Mapped["Usuario | None"] = relationship(foreign_keys=[sujeto_id])

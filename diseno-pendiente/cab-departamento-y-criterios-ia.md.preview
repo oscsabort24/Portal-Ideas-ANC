@@ -1,5 +1,13 @@
 # Diseño pendiente — CAB por departamento + criterios de IA por departamento
 
+> **Sección 1 SUPERSEDED** — la implementación final de CAB por
+> departamento (con las 5 decisiones de este documento ya resueltas, más
+> reasignación dentro del CAB) vive en
+> `cab-departamento-reasignacion.md.preview`. La sección 1 de acá queda
+> como contexto histórico de las decisiones originales, no como lo que se
+> va a implementar. La sección 2 sigue superseded por
+> `cascada-revisor-y-criterios-texto.md.preview`, sin cambios.
+
 Este documento **no es código activo**. Es un diseño para revisión y
 aprobación, en el mismo espíritu que los `.preview` de Fase 3/4 (ver
 `diseno-pendiente/README.md`). No se aplicó ninguna migración ni se tocó

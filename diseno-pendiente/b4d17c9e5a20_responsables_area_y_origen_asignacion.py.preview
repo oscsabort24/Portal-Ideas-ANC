@@ -47,7 +47,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "b4d17c9e5a20"
-down_revision = "7e2c4a91b3f0"
+down_revision = "9c2f4e71a0b3"  # rebasado — el head real hoy, tras permisos/ y criterios_ia
 branch_labels = None
 depends_on = None
 

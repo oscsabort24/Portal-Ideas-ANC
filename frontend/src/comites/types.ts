@@ -1,7 +1,7 @@
 import type { Idea } from '../ideas/types'
 import type { TipoCAB } from '../usuarios/types'
 
-export type EstadoComite = 'pendiente' | 'aprobada' | 'rechazada'
+export type EstadoComite = 'pendiente' | 'aprobada' | 'rechazada' | 'pendiente_aceptacion_reasignacion'
 
 export interface UsuarioResumen {
   id: number
@@ -14,14 +14,26 @@ export interface ComiteIdea {
   tipo_cab: TipoCAB
   estado: EstadoComite
   motivo_rechazo: string | null
+  asignado_a_id: number | null
   aprobada_o_rechazada_por_id: number | null
   fecha_resolucion: string | null
   creado_en: string
+  propuesto_a_id: number | null
+  reasignacion_solicitada_por_id: number | null
+  fecha_solicitud_reasignacion: string | null
 }
 
 export interface ComiteIdeaDetalle extends ComiteIdea {
   idea: Idea
+  asignado_a: UsuarioResumen | null
   aprobada_o_rechazada_por: UsuarioResumen | null
+  propuesto_a: UsuarioResumen | null
+  reasignacion_solicitada_por: UsuarioResumen | null
+}
+
+export interface DepartamentoVisible {
+  id: number
+  nombre: string
 }
 
 export type PresupuestoRango = '0' | '1-10000' | '10001-20000' | '20001-30000' | '+30000'

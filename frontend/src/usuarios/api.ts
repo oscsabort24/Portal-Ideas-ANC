@@ -1,5 +1,6 @@
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../core/api'
 import type {
+  ActualizarDepartamentosMiembroCABRequest,
   Departamento,
   MiembroCAB,
   MiembroCABDetalle,
@@ -91,6 +92,13 @@ export function agregarMiembroCab(payload: {
 
 export function quitarMiembroCab(id: number): Promise<void> {
   return apiDelete(`/usuarios/cab/${id}`)
+}
+
+export function actualizarDepartamentosMiembroCab(
+  miembroId: number,
+  payload: ActualizarDepartamentosMiembroCABRequest,
+): Promise<MiembroCABDetalle> {
+  return apiPut<MiembroCABDetalle>(`/usuarios/cab/${miembroId}/departamentos`, payload)
 }
 
 /** Permisos efectivos (resueltos) del usuario actual — no la tabla cruda. */

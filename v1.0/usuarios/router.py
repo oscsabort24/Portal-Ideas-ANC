@@ -172,6 +172,37 @@ def quitar_miembro_cab(
     db.commit()
 
 
+@router.put("/cab/{miembro_id}/departamentos", response_model=schemas.MiembroCABDetalleOut)
+def actualizar_departamentos_miembro_cab(
+    miembro_id: int,
+    payload: schemas.ActualizarDepartamentosMiembroCABRequest,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(requerir_admin),
+):
+    """Solo admin puede decidir qué departamentos ve cada miembro de CAB
+    (decisión de negocio confirmada) — reemplaza el set completo, no hace
+    add/remove incremental."""
+    miembro = db.get(models.MiembroCAB, miembro_id)
+    if not miembro:
+        raise HTTPException(status_code=404, detail="Membresía de CAB no encontrada")
+
+    if payload.departamento_ids:
+        encontrados = (
+            db.query(models.Departamento.id)
+            .filter(models.Departamento.id.in_(payload.departamento_ids))
+            .all()
+        )
+        if len(encontrados) != len(set(payload.departamento_ids)):
+            raise HTTPException(status_code=400, detail="Alguno de los departamentos no existe")
+
+    db.query(models.MiembroCABDepartamento).filter_by(miembro_cab_id=miembro_id).delete()
+    for depto_id in payload.departamento_ids:
+        db.add(models.MiembroCABDepartamento(miembro_cab_id=miembro_id, departamento_id=depto_id))
+    db.commit()
+    db.refresh(miembro)
+    return miembro
+
+
 @router.patch("/departamentos/{departamento_id}", response_model=schemas.DepartamentoOut)
 def actualizar_departamento(
     departamento_id: int,
