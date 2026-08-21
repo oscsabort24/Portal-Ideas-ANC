@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import zipfile
 from urllib.parse import quote
 
@@ -11,7 +12,7 @@ from comites.models import ComiteIdea
 from comites.service import departamentos_visibles, idea_departamento_visible
 from core.database import get_db
 from documentos import schemas
-from documentos.archivos import sanitizar_nombre_archivo
+from documentos.archivos import ruta_dentro_de_uploads, sanitizar_nombre_archivo
 from documentos.models import DocumentoGenerado, PermisoDocumentoRol, TipoDocumento
 from documentos.pdf import html_a_pdf_bytes
 from documentos.plantillas_html import renderizar_documento
@@ -22,6 +23,21 @@ from usuarios import models as usuarios_models
 from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/documentos", tags=["documentos"])
+logger = logging.getLogger(__name__)
+
+
+def _resolver_ruta_o_500(ruta_archivo: str) -> str:
+    """Envoltorio de ruta_dentro_de_uploads() para los 2 endpoints que sirven
+    el .docx directamente del disco: el ValueError de una ruta fuera del
+    directorio esperado no debe llegar al cliente como excepción no
+    manejada (traceback/500 genérico de Starlette) — se loguea con la ruta
+    real (información solo para el operador) y se responde con un mensaje
+    fijo en español, sin exponer rutas de archivo ni nombres internos."""
+    try:
+        return str(ruta_dentro_de_uploads(ruta_archivo))
+    except ValueError:
+        logger.error("ruta_archivo fuera del directorio de uploads esperado: %r", ruta_archivo)
+        raise HTTPException(status_code=500, detail="No se pudo acceder al archivo solicitado")
 
 
 def _obtener_idea(db: Session, idea_id: int) -> Idea:
@@ -187,8 +203,12 @@ def descargar_documento(
         raise HTTPException(status_code=404, detail="Este documento no ha sido generado para esta idea")
 
     nombre_archivo = f"{sanitizar_nombre_archivo(idea.titulo)} - {tipo_documento.value}.docx"
+    # Defensa en profundidad: ruta_archivo viene de la base, no de input
+    # directo de usuario, pero ver ruta_dentro_de_uploads() para por qué
+    # igual se valida antes de servir el archivo.
+    ruta = _resolver_ruta_o_500(documento.ruta_archivo)
     return FileResponse(
-        documento.ruta_archivo,
+        ruta,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         filename=nombre_archivo,
     )
@@ -268,7 +288,10 @@ def descargar_zip(
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for d in documentos:
-            zf.write(d.ruta_archivo, arcname=f"{d.tipo_documento.value}.docx")
+            # Mismo guardrail que descargar_documento — ver
+            # ruta_dentro_de_uploads().
+            ruta = _resolver_ruta_o_500(d.ruta_archivo)
+            zf.write(ruta, arcname=f"{d.tipo_documento.value}.docx")
     buffer.seek(0)
 
     nombre_zip = f"{sanitizar_nombre_archivo(idea.titulo)}.zip"
