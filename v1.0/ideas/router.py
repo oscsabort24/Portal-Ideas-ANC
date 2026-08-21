@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from comites.models import ComiteIdea
+from comites.service import departamentos_visibles, idea_departamento_visible
 from core.claude_client import EstadoBloque, generar_respuesta, generar_resumen_idea, responder_pregunta_idea
 from core.database import get_db
 from ideas import schemas
@@ -15,7 +16,7 @@ from riesgo.models import AnalisisRiesgoIdea
 from riesgo.service import crear_analisis_riesgo_para_idea
 from permisos.models import ClavePermiso
 from permisos.service import tiene_permiso
-from usuarios.models import MiembroCAB, RolUsuario, Usuario
+from usuarios.models import RolUsuario, Usuario
 from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
@@ -346,9 +347,11 @@ def enviar_idea(
 
 def _tiene_acceso_revision_o_comite(db: Session, idea: Idea, usuario: Usuario) -> bool:
     """Acceso al resumen/preguntas de una idea: admin, el revisor asignado
-    (RevisionIdea.revisor_id), o un miembro del CAB del tipo correspondiente
-    si la idea ya llegó a comité — mismo patrón que
-    documentos/router.py:_validar_acceso.
+    (RevisionIdea.revisor_id), o un miembro del CAB con acceso al
+    departamento del autor si la idea ya llegó a comité — mismo patrón
+    que documentos/router.py:_validar_acceso (departamentos_visibles +
+    idea_departamento_visible, no tipo_cab — migrado de la implementación
+    vieja que quedó desalineada tras el cambio a CAB por departamento).
 
     A diferencia de ese patrón, aquí el AUTOR de la idea no tiene acceso —
     decisión intencional confirmada: el resumen/mini-chat es una herramienta
@@ -365,13 +368,8 @@ def _tiene_acceso_revision_o_comite(db: Session, idea: Idea, usuario: Usuario) -
 
     comite = db.query(ComiteIdea).filter_by(idea_id=idea.id).first()
     if comite:
-        es_miembro = (
-            db.query(MiembroCAB)
-            .filter(MiembroCAB.usuario_id == usuario.id, MiembroCAB.tipo_cab == comite.tipo_cab)
-            .first()
-            is not None
-        )
-        if es_miembro:
+        departamentos = departamentos_visibles(db, usuario)
+        if idea_departamento_visible(idea.autor.departamento_id, departamentos):
             return True
 
     return False

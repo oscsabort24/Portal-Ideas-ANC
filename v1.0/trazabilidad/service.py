@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from clasificacion.models import ClasificacionIdea, EstadoClasificacion
 from comites.models import ComiteIdea, EstadoComite
+from comites.service import departamentos_visibles, idea_departamento_visible
 from documentos.models import DocumentoGenerado, TipoDocumento
 from ideas.models import Idea
 from revision.models import EstadoRevision, HistorialRetroalimentacion, RevisionIdea
@@ -128,9 +129,15 @@ def construir_flow_control(db: Session) -> list[dict]:
     for h in db.query(HistorialRetroalimentacion).order_by(HistorialRetroalimentacion.creada_en).all():
         ultima_retro_por_revision[h.revision_id] = h
 
-    miembros_por_tipo_cab: dict[str, list[Usuario]] = defaultdict(list)
-    for miembro in db.query(MiembroCAB).options(joinedload(MiembroCAB.usuario)).all():
-        miembros_por_tipo_cab[miembro.tipo_cab.value].append(miembro.usuario)
+    # Ya NO por tipo_cab (metadata pura desde CAB-por-departamento, ver
+    # usuarios/models.py:MiembroCAB) — mismo criterio real que
+    # comites/router.py:cola_comite: departamentos_visibles() por cada
+    # miembro de CAB, resuelto una sola vez acá para no repetir la query
+    # por cada idea.
+    miembros_cab_con_departamentos: list[tuple[Usuario, list[int] | None]] = [
+        (miembro.usuario, departamentos_visibles(db, miembro.usuario))
+        for miembro in db.query(MiembroCAB).options(joinedload(MiembroCAB.usuario)).all()
+    ]
 
     ahora = datetime.now(timezone.utc)
     filas: list[dict] = []
@@ -147,8 +154,11 @@ def construir_flow_control(db: Session) -> list[dict]:
 
         miembros_comite = None
         if comite is not None:
+            departamento_autor = idea.autor.departamento_id if idea.autor else None
             miembros_comite = [
-                _persona_resumen(u) for u in miembros_por_tipo_cab.get(comite.tipo_cab.value, [])
+                _persona_resumen(usuario)
+                for usuario, departamentos in miembros_cab_con_departamentos
+                if idea_departamento_visible(departamento_autor, departamentos)
             ]
 
         dias_en_etapa = max(0, (ahora - fecha_entrada).days)
