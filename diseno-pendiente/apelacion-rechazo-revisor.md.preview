@@ -1,0 +1,107 @@
+# Apelación al comité tras rechazo del revisor (Opción C) — PENDIENTE, no implementado
+
+## Contexto
+
+En la sesión que agregó la 4ta acción del encargado de área (Aprobar /
+Pedir cambios / Reasignar / **Rechazar**), se evaluaron 3 opciones para
+qué pasa cuando el revisor rechaza una idea:
+
+- **Opción A** (implementada — ver `revision/models.py:EstadoRevision.rechazada`,
+  `revision/router.py:rechazar`): rechazo final, mismo patrón que
+  `EstadoComite.rechazada`. La idea nunca llega a `ComiteIdea`.
+- **Opción B** (descartada): rechazo como variante de tono de "pedir
+  cambios" — se descartó porque no aporta comportamiento distinto al
+  que ya existe.
+- **Opción C** (esta, pendiente de diseño): rechazo final **para el
+  revisor**, pero con apelación al comité antes de cerrar la idea.
+
+## La tensión que motiva esta opción
+
+Con la Opción A ya implementada, **un solo encargado de área tiene poder
+de veto absoluto** sobre cualquier idea de su departamento — puede
+rechazarla sin que el comité (CAB), que es la instancia que sí tiene la
+última palabra sobre el resto del pipeline (aprobar/rechazar ideas ya
+clasificadas), llegue a enterarse siquiera de que existió.
+
+Esto es una decisión de **política de negocio**, no técnica: ¿Grupo ANC
+quiere que el filtro inicial del encargado de área sea definitivo, o
+prefiere que el comité conserve la autoridad final también sobre las
+ideas descartadas en revisión? La Opción A se implementó primero porque
+es el cambio más chico y consistente con lo que ya existe — este
+documento queda como el diseño listo para retomar si más adelante se
+decide que el revisor no debería tener la última palabra sin
+supervisión.
+
+## Qué tocaría (diagnóstico, sin implementar)
+
+### 1. `revision/` — ya tiene la base (Opción A), necesita extender el ciclo
+
+- `EstadoRevision.rechazada` pasaría de ser terminal a tener una
+  transición nueva: `en_apelacion` (o reusar el mismo `rechazada` con un
+  flag adicional `apelada: bool` — a decidir en el diseño final).
+- Nuevo endpoint en `revision/router.py`, ej. `POST /revision/{idea_id}/apelar`,
+  disponible solo para el AUTOR de la idea rechazada (hoy el autor no
+  tiene ninguna acción sobre `RevisionIdea` una vez que ésta se resuelve
+  — sería la primera).
+
+### 2. `comites/` — necesita un mecanismo de entrada que hoy no existe
+
+- Hoy `ComiteIdea` **solo se crea al aprobar la clasificación**
+  (`clasificacion/service.py` → `comites/service.py:crear_comite_idea_para_idea`,
+  llamado desde `clasificacion/router.py:clasificar`). Con apelación, una
+  idea entraría a la cola del comité **sin haber pasado por
+  clasificación** — es una rama nueva del pipeline, no una reutilización
+  de la existente.
+- Necesitaría un estado nuevo en `EstadoComite` (ej. `en_apelacion`) para
+  distinguir "idea normal, ya clasificada" de "idea en apelación, el
+  revisor la rechazó y el comité tiene que decidir si confirma el
+  rechazo o la retoma" — la UI de `ColaComite.tsx` tendría que
+  distinguir ambos casos (probablemente con las mismas 2 acciones que ya
+  tiene aprobar/rechazar, pero un tercer estado post-decisión: "confirmar
+  rechazo del revisor" vs. "revertir y tomar la revisión").
+
+### 3. `clasificacion/` — la idea en apelación se saltea este módulo
+
+- Si el comité decide "tomar la idea" (revertir el rechazo), hay que
+  decidir: ¿pasa por clasificación automática recién en ese momento
+  (como si el revisor la hubiera aprobado), o el comité mismo la
+  clasifica al aceptar apelación? Cualquiera de las 2 rutas requiere
+  tocar `clasificacion/service.py`/`clasificacion/router.py` para
+  aceptar este caso nuevo (hoy asume siempre que llega desde
+  `revision/router.py:aprobar`).
+
+### 4. `ideas/router.py` — nueva rama del flujo de envío
+
+- El resumen/línea de tiempo de la idea (`ideas/service.py:construir_linea_tiempo`)
+  necesitaría eventos nuevos: `revision_rechazada_en_apelacion`,
+  `comite_confirma_rechazo`, `comite_revierte_rechazo` — para que el
+  autor entienda en qué punto del proceso de apelación está.
+- `_tiene_acceso_revision_o_comite` (ver hallazgo #7, ya migrado a
+  `departamentos_visibles()`) necesitaría cubrir también el caso "idea en
+  apelación" para que el comité pueda ver el resumen/preguntas antes de
+  decidir.
+
+## Tamaño estimado
+
+**Grande** — no es un cambio de una sesión. Toca 4 módulos de backend
+(`revision/`, `comites/`, `clasificacion/`, `ideas/`), probablemente 2
+migraciones de Alembic (nuevo estado en `EstadoComite`, y el mecanismo
+de apelación en `RevisionIdea` o una tabla nueva), y el frontend
+correspondiente en `MisRevisiones.tsx`/`ColaComite.tsx`/`LineaTiempo.tsx`.
+Es un rediseño acotado de una porción del pipeline, no una extensión
+incremental.
+
+## Qué falta decidir antes de diseñar esto en detalle
+
+- ¿La apelación la dispara el autor (pidiendo que el comité revise), o
+  es automática (toda idea rechazada por el revisor entra a apelación
+  sin que nadie la pida)? Cambia completamente el diseño — automática
+  significa que la Opción A actual ya no sería "final" en la práctica.
+- ¿El comité que ve la apelación es el del departamento del revisor que
+  rechazó, el del autor, o cualquiera con acceso? (mismo tipo de
+  pregunta que ya resolvimos para CAB por departamento en general).
+- ¿Hay un límite de apelaciones por idea (para evitar un ping-pong
+  revisor-rechaza / comité-revierte / vuelve al mismo revisor)?
+
+Este documento queda como punto de partida — antes de implementar,
+retomar estas 3 preguntas con el negocio real de Grupo ANC.

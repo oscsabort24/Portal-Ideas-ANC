@@ -42,9 +42,16 @@ en `comite_ideas` vía el mixin compartido (`core/reasignacion.py`).
 | `4d81f6c93a52_permisos_rol.py.preview` | Migración de `permisos_rol` | Aplicada |
 | `cab-departamento-reasignacion.md.preview` | Implementación final de CAB por departamento + reasignación (mixin compartido con `revision/`) | **Aplicado en este commit** |
 | `a3f7c9e21d68_cab_por_departamento_y_reasignacion.py.preview` | Migración de `miembros_cab_departamentos` + reasignación en `comite_ideas` | **Aplicada en este commit** — copia real en `v1.0/alembic/versions/` |
+| `apelacion-rechazo-revisor.md.preview` | Opción C de "4ta acción del revisor" (rechazo con apelación al comité) — Opción A (rechazo final, sin apelación) fue la implementada, ver `d5e8f21a9c36` abajo | Diseño pendiente, sin aplicar — decisión de negocio primero |
 
 ## Lo que sigue genuinamente pendiente de diseño/aprobación
 
+- **Apelación al comité tras rechazo del revisor** (`apelacion-rechazo-revisor.md.preview`)
+  — Opción C de la "4ta acción del revisor" (Rechazar). Se implementó la
+  Opción A (rechazo final, `d5e8f21a9c36_rechazo_de_revision_por_encargado_area.py`,
+  `EstadoRevision.rechazada`); la apelación queda como diseño sin aplicar,
+  a la espera de una decisión de negocio sobre si el revisor debe tener
+  poder de veto absoluto o el comité debe conservar la última palabra.
 - La cascada de asignación de revisor en sí (`cascada-revisor-y-criterios-texto.md.preview`,
   sección 1: jefe inmediato → CAB del departamento → pendiente_asignacion)
   — no se aplicó, sigue siendo diseño.
