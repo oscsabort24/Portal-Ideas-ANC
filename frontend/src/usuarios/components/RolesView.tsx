@@ -137,6 +137,8 @@ function PermisosConfigurables() {
                   <td key={rol} style={{ textAlign: 'center' }}>
                     <input
                       type="checkbox"
+                      id={`permiso-${clave}-${rol}`}
+                      aria-label={`${ETIQUETA_PERMISO[clave]} — ${ETIQUETA_ROL[rol]}`}
                       checked={valorActual(rol, clave)}
                       onChange={() => alternar(rol, clave)}
                     />
