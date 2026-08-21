@@ -64,6 +64,7 @@ export default function ChatEntrevista() {
   const [mensajes, setMensajes] = useState<MensajeEntrevista[]>([])
   const [contenido, setContenido] = useState(() => localStorage.getItem(claveBorrador(ideaId)) ?? '')
   const [enviando, setEnviando] = useState(false)
+  const [reintentando, setReintentando] = useState(false)
   const [enviandoIdea, setEnviandoIdea] = useState(false)
   // Respuestas sugeridas del último turno. Efímeras a propósito (no vienen
   // en obtenerIdea, ver ideas/schemas.py) — tras recargar la página quedan
@@ -157,10 +158,6 @@ export default function ChatEntrevista() {
       return
     }
 
-    const controller = new AbortController()
-    abortControllerRef.current = controller
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_ENVIO_MS)
-
     if (idempotencyKeyRef.current === null) {
       idempotencyKeyRef.current = crypto.randomUUID()
     }
@@ -170,8 +167,37 @@ export default function ChatEntrevista() {
     // Las opciones eran del turno anterior: en cuanto se manda una respuesta
     // dejan de aplicar, aunque la nueva pregunta todavía no haya llegado.
     setOpciones(null)
-    try {
-      const respuesta = await enviarMensaje(ideaId, texto, idempotencyKeyRef.current, controller.signal)
+
+    // Máximo 2 intentos: el primer timeout dispara UN reintento automático
+    // — la Idempotency-Key (ver ideas/api.ts:enviarMensaje) hace esto seguro,
+    // reusa el turno ya generado en el servidor en vez de duplicarlo. Solo
+    // se reintenta ante AbortError (timeout): un error real de la API
+    // (400/500) fallaría exactamente igual al reintentar, así que no vale
+    // la pena la espera adicional para el usuario.
+    const MAX_INTENTOS = 2
+    let respuesta: Awaited<ReturnType<typeof enviarMensaje>> | null = null
+    let ultimoError: unknown = null
+
+    for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_ENVIO_MS)
+      try {
+        respuesta = await enviarMensaje(ideaId, texto, idempotencyKeyRef.current, controller.signal)
+        clearTimeout(timeoutId)
+        abortControllerRef.current = null
+        break
+      } catch (err) {
+        clearTimeout(timeoutId)
+        abortControllerRef.current = null
+        ultimoError = err
+        if (!esAbortError(err) || intento === MAX_INTENTOS) break
+        setReintentando(true)
+      }
+    }
+    setReintentando(false)
+
+    if (respuesta) {
       setMensajes((prev) => [...prev, respuesta.mensaje_usuario, respuesta.mensaje_asistente])
       setIdea((prev) =>
         prev
@@ -192,17 +218,13 @@ export default function ChatEntrevista() {
         localStorage.removeItem(claveBorrador(ideaId))
       }
       idempotencyKeyRef.current = null
-    } catch (err) {
-      if (esAbortError(err)) {
-        setError('El envío tardó demasiado y se canceló. Por favor, intentá de nuevo.')
-      } else {
-        setError(err instanceof Error ? err.message : 'No se pudo enviar el mensaje')
-      }
-    } finally {
-      clearTimeout(timeoutId)
-      abortControllerRef.current = null
-      setEnviando(false)
+    } else if (esAbortError(ultimoError)) {
+      setError('El envío tardó demasiado y se canceló, incluso después de reintentar. Por favor, intentá de nuevo.')
+    } else {
+      setError(ultimoError instanceof Error ? ultimoError.message : 'No se pudo enviar el mensaje')
     }
+
+    setEnviando(false)
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -257,11 +279,17 @@ export default function ChatEntrevista() {
           ))}
           {enviando && (
             <div className="message assistant">
-              <div className="msg-bubble escribiendo-dots" aria-label="Escribiendo...">
-                <span />
-                <span />
-                <span />
-              </div>
+              {reintentando ? (
+                <div className="msg-bubble" aria-label="Reintentando envío...">
+                  El envío está tardando más de lo normal — reintentando...
+                </div>
+              ) : (
+                <div className="msg-bubble escribiendo-dots" aria-label="Escribiendo...">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              )}
             </div>
           )}
           <div ref={finMensajesRef} />
