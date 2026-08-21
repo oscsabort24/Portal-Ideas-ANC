@@ -13,8 +13,13 @@ from permisos.models import ClavePermiso
 from permisos.service import rol_tiene_permiso
 from revision import schemas
 from revision.models import EstadoRevision, HistorialRetroalimentacion, OrigenAsignacion, RevisionIdea
-from revision.service import aplicar_rechazo_reasignacion, expirar_reasignaciones_vencidas
+from revision.service import (
+    _roles_habilitados_revisor,
+    aplicar_rechazo_reasignacion,
+    expirar_reasignaciones_vencidas,
+)
 from usuarios import models as usuarios_models
+from usuarios import schemas as usuarios_schemas
 from usuarios.dependencies import obtener_usuario_actual, requerir_admin
 
 router = APIRouter(prefix="/revision", tags=["revision"])
@@ -64,6 +69,37 @@ def mis_revisiones(
             )
         )
     return query.all()
+
+
+@router.get("/candidatos-reasignar/{idea_id}", response_model=list[usuarios_schemas.UsuarioBasicoOut])
+def candidatos_reasignar(
+    idea_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    """Candidatos para el picker de "Reasignar a" de MisRevisiones.tsx —
+    replica EXACTAMENTE la regla que antes vivía client-side sobre
+    listarUsuarios() completo (ver diagnóstico hallazgo #2, tanda 3):
+    rol con permiso es_revisor_elegible + activo + excluir a quien pide
+    (no al revisor actual de esta idea, eso lo sigue rechazando
+    _validar_revisor_destino/reasignar con 400 al confirmar, no se filtra
+    de la lista). idea_id no cambia el filtro hoy (la regla nunca dependió
+    de la idea) — se recibe por si eso cambia a futuro y para mantener la
+    URL simétrica con GET /comites/candidatos-reasignar/{idea_id}.
+
+    Devuelve solo UsuarioBasicoOut (id, nombre, departamento_id) — sin rol
+    ni correo, a diferencia de listarUsuarios() completo que ahora
+    requiere admin."""
+    _obtener_revision(db, idea_id)
+    return (
+        db.query(usuarios_models.Usuario)
+        .filter(
+            usuarios_models.Usuario.rol.in_(_roles_habilitados_revisor(db)),
+            usuarios_models.Usuario.activo == True,  # noqa: E712
+            usuarios_models.Usuario.id != usuario_actual.id,
+        )
+        .all()
+    )
 
 
 @router.get("/sin-asignar", response_model=list[schemas.RevisionDetalleOut])

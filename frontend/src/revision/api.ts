@@ -1,8 +1,15 @@
 import { apiGet, apiPost } from '../core/api'
+import type { UsuarioBasico } from '../usuarios/types'
 import type { Revision, RevisionDetalle } from './types'
 
 export function misRevisiones(): Promise<RevisionDetalle[]> {
   return apiGet<RevisionDetalle[]>('/revision/mias')
+}
+
+// Candidatos ya filtrados por rol+activo en el backend (ver diagnóstico
+// hallazgo #2, tanda 3) — sin correo ni rol en la respuesta.
+export function candidatosReasignar(ideaId: number): Promise<UsuarioBasico[]> {
+  return apiGet<UsuarioBasico[]>(`/revision/candidatos-reasignar/${ideaId}`)
 }
 
 export function revisionesSinAsignar(): Promise<RevisionDetalle[]> {

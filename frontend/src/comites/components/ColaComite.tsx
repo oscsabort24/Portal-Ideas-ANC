@@ -3,10 +3,18 @@ import { FiFileText } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
-import { listarUsuarios } from '../../usuarios/api'
+import { listarUsuariosDirectorioBasico } from '../../usuarios/api'
 import { useEsMiembroCab } from '../../usuarios/hooks/useEsMiembroCab'
-import type { Usuario } from '../../usuarios/types'
-import { aceptarReasignacion, aprobar, colaComite, rechazar, rechazarReasignacion, reasignar } from '../api'
+import type { UsuarioBasico } from '../../usuarios/types'
+import {
+  aceptarReasignacion,
+  aprobar,
+  candidatosReasignar,
+  colaComite,
+  rechazar,
+  rechazarReasignacion,
+  reasignar,
+} from '../api'
 import FormularioRice from './FormularioRice'
 import type { ComiteIdeaDetalle } from '../types'
 
@@ -17,7 +25,8 @@ export default function ColaComite() {
   const esAdmin = usuarioActual.rol === 'admin'
   const { esMiembro, departamentos, cargando: cargandoMembresias, error: errorMembresias } = useEsMiembroCab()
   const [cola, setCola] = useState<ComiteIdeaDetalle[]>([])
-  const [usuarios, setUsuarios] = useState<Usuario[]>([])
+  const [usuarios, setUsuarios] = useState<UsuarioBasico[]>([])
+  const [candidatos, setCandidatos] = useState<UsuarioBasico[]>([])
   const [cargandoCola, setCargandoCola] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [accionAbierta, setAccionAbierta] = useState<AccionAbierta>(null)
@@ -27,7 +36,10 @@ export default function ColaComite() {
   const [riceAbiertoPara, setRiceAbiertoPara] = useState<number | null>(null)
 
   useEffect(() => {
-    listarUsuarios()
+    // directorio-basico (no listarUsuarios completo): miembros de CAB no
+    // son admin, y listarUsuarios() ahora requiere admin (ver diagnóstico
+    // hallazgo #2, tanda 3) — solo se necesita el nombre del autor.
+    listarUsuariosDirectorioBasico()
       .then(setUsuarios)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar los usuarios'))
   }, [])
@@ -51,6 +63,7 @@ export default function ColaComite() {
     setAccionAbierta(null)
     setMotivo('')
     setNuevoAsignadoId('')
+    setCandidatos([])
   }
 
   async function handleAprobar(ideaId: number) {
@@ -134,10 +147,17 @@ export default function ColaComite() {
     )
   }
 
-  // encargadosActivos: candidatos válidos para reasignar — cualquier
-  // usuario activo (el backend valida acceso al departamento real al
-  // recibir la request; acá solo se evita spamear la lista con inactivos).
-  const candidatosReasignar = usuarios.filter((u) => u.activo && u.id !== usuarioActual.id)
+  function abrirReasignar(comiteId: number, ideaId: number) {
+    setAccionAbierta({ comiteId, tipo: 'reasignar' })
+    // Filtro por activo ya lo aplica el backend (ver
+    // GET /comites/candidatos-reasignar/{idea_id}) — mismo criterio que
+    // tenía este filtro client-side (activo + no vos mismo, sin filtro de
+    // rol/departamento: eso lo sigue validando _validar_miembro_destino al
+    // confirmar). El picker solo recibe id/nombre/departamento_id.
+    candidatosReasignar(ideaId)
+      .then(setCandidatos)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar los candidatos'))
+  }
 
   return (
     <div>
@@ -255,7 +275,7 @@ export default function ColaComite() {
                     onChange={(e) => setNuevoAsignadoId(e.target.value)}
                   >
                     <option value="">Selecciona una persona</option>
-                    {candidatosReasignar.map((u) => (
+                    {candidatos.map((u) => (
                       <option key={u.id} value={u.id}>{u.nombre}</option>
                     ))}
                   </select>
@@ -283,7 +303,7 @@ export default function ColaComite() {
                   </button>
                   <button
                     className="btn-small"
-                    onClick={() => setAccionAbierta({ comiteId: c.id, tipo: 'reasignar' })}
+                    onClick={() => abrirReasignar(c.id, c.idea_id)}
                   >
                     Reasignar
                   </button>

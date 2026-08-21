@@ -3,9 +3,9 @@ import { FiFileText } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
-import { listarUsuarios, rolesConPermiso } from '../../usuarios/api'
-import type { Usuario } from '../../usuarios/types'
-import { aceptarReasignacion, aprobar, misRevisiones, pedirCambios, reasignar, rechazarReasignacion } from '../api'
+import { listarUsuariosDirectorioBasico } from '../../usuarios/api'
+import type { UsuarioBasico } from '../../usuarios/types'
+import { aceptarReasignacion, aprobar, candidatosReasignar, misRevisiones, pedirCambios, reasignar, rechazarReasignacion } from '../api'
 import type { RevisionDetalle } from '../types'
 
 type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' | 'rechazar-reasignacion' } | null
@@ -13,8 +13,8 @@ type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' | 'rech
 export default function MisRevisiones() {
   const usuarioActual = useUsuarioActual()
   const [revisiones, setRevisiones] = useState<RevisionDetalle[]>([])
-  const [usuarios, setUsuarios] = useState<Usuario[]>([])
-  const [rolesElegibles, setRolesElegibles] = useState<string[]>([])
+  const [usuarios, setUsuarios] = useState<UsuarioBasico[]>([])
+  const [candidatos, setCandidatos] = useState<UsuarioBasico[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [accionAbierta, setAccionAbierta] = useState<AccionAbierta>(null)
@@ -25,7 +25,11 @@ export default function MisRevisiones() {
   function cargar() {
     setCargando(true)
     setError(null)
-    Promise.all([misRevisiones(), listarUsuarios()])
+    // directorio-basico (no listarUsuarios completo): esta pantalla la usan
+    // encargados de área, no solo admin, y listarUsuarios() ahora requiere
+    // admin (ver diagnóstico hallazgo #2, tanda 3) — solo se necesita el
+    // nombre del autor para mostrarlo, nunca correo ni rol.
+    Promise.all([misRevisiones(), listarUsuariosDirectorioBasico()])
       .then(([r, u]) => {
         setRevisiones(r)
         setUsuarios(u)
@@ -35,25 +39,26 @@ export default function MisRevisiones() {
   }
 
   useEffect(cargar, [])
-  useEffect(() => {
-    rolesConPermiso('es_revisor_elegible').then(setRolesElegibles)
-  }, [])
 
   function nombreAutor(autorId: number): string {
     return usuarios.find((u) => u.id === autorId)?.nombre ?? '—'
   }
 
-  // Roles habilitados para revisar (permiso configurable es_revisor_elegible,
-  // ver diseno-pendiente/fase-permisos-por-rol.md.preview — admin ya viene
-  // incluido en rolesElegibles por bypass del backend).
-  const encargadosActivos = usuarios.filter(
-    (u) => rolesElegibles.includes(u.rol) && u.activo && u.id !== usuarioActual.id,
-  )
+  function abrirReasignar(revisionId: number, ideaId: number) {
+    setAccionAbierta({ revisionId, tipo: 'reasignar' })
+    // Filtro por rol+activo ya lo aplica el backend (ver
+    // GET /revision/candidatos-reasignar/{idea_id}) — el picker solo
+    // recibe id/nombre/departamento_id, nunca rol ni correo.
+    candidatosReasignar(ideaId)
+      .then(setCandidatos)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar los candidatos'))
+  }
 
   function cerrarAccion() {
     setAccionAbierta(null)
     setRetroalimentacion('')
     setNuevoRevisorId('')
+    setCandidatos([])
   }
 
   async function handleAprobar(ideaId: number) {
@@ -244,7 +249,7 @@ export default function MisRevisiones() {
                     onChange={(e) => setNuevoRevisorId(e.target.value)}
                   >
                     <option value="">Selecciona un encargado de área</option>
-                    {encargadosActivos.map((u) => (
+                    {candidatos.map((u) => (
                       <option key={u.id} value={u.id}>{u.nombre}</option>
                     ))}
                   </select>
@@ -274,7 +279,7 @@ export default function MisRevisiones() {
                   </button>
                   <button
                     className="btn-small"
-                    onClick={() => setAccionAbierta({ revisionId: r.id, tipo: 'reasignar' })}
+                    onClick={() => abrirReasignar(r.id, r.idea_id)}
                   >
                     Reasignar
                   </button>

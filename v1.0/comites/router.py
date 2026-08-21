@@ -14,6 +14,7 @@ from core.reasignacion import aplicar_rechazo_reasignacion as _aplicar_rechazo_g
 from core.reasignacion import obtener_bloqueado_para_reasignar
 from ideas.models import HistorialIdea, Idea, TipoEventoIdea
 from usuarios import models as usuarios_models
+from usuarios import schemas as usuarios_schemas
 from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/comites", tags=["comites"])
@@ -140,6 +141,36 @@ def rechazar(
     db.commit()
     db.refresh(comite)
     return comite
+
+
+@router.get("/candidatos-reasignar/{idea_id}", response_model=list[usuarios_schemas.UsuarioBasicoOut])
+def candidatos_reasignar(
+    idea_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    """Candidatos para el picker de "Reasignar a" de ColaComite.tsx — replica
+    EXACTAMENTE la regla que antes vivía client-side sobre listarUsuarios()
+    completo (ver diagnóstico hallazgo #2, tanda 3): solo activo + excluir
+    a quien pide. SIN filtro de rol ni de departamento — la validación real
+    de acceso al departamento la sigue haciendo _validar_miembro_destino al
+    confirmar la reasignación, tal como ya lo hacía el filtro client-side
+    original (ver el comentario que tenía ColaComite.tsx antes de esta
+    migración). idea_id no cambia el filtro hoy — se recibe por simetría
+    con GET /revision/candidatos-reasignar/{idea_id} y por si a futuro se
+    vuelve idea-específico.
+
+    Devuelve solo UsuarioBasicoOut (id, nombre, departamento_id) — sin rol
+    ni correo."""
+    _obtener_comite(db, idea_id)
+    return (
+        db.query(usuarios_models.Usuario)
+        .filter(
+            usuarios_models.Usuario.activo == True,  # noqa: E712
+            usuarios_models.Usuario.id != usuario_actual.id,
+        )
+        .all()
+    )
 
 
 def _validar_miembro_destino(db: Session, comite: ComiteIdea, usuario_id: int) -> usuarios_models.Usuario:

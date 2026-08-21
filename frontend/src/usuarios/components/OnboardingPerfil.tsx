@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { crearUsuario, listarDepartamentos, listarPuestos, listarUsuarios, obtenerUsuarioPorCorreo } from '../api'
+import { crearUsuario, listarDepartamentos, listarPuestos, listarUsuariosDirectorioBasico, obtenerUsuarioPorCorreo } from '../api'
 import {
   ETIQUETA_COMPANIA,
   ETIQUETA_PAIS,
@@ -8,6 +8,7 @@ import {
   type PaisUsuario,
   type Puesto,
   type Usuario,
+  type UsuarioBasico,
 } from '../types'
 
 const PAISES: PaisUsuario[] = ['CR', 'GT', 'NI', 'PE']
@@ -31,7 +32,7 @@ export default function OnboardingPerfil({
 }) {
   const [departamentos, setDepartamentos] = useState<Departamento[]>([])
   const [puestos, setPuestos] = useState<Puesto[]>([])
-  const [personas, setPersonas] = useState<Usuario[]>([])
+  const [personas, setPersonas] = useState<UsuarioBasico[]>([])
   const [cargando, setCargando] = useState(true)
 
   const [pais, setPais] = useState<PaisUsuario | ''>('')
@@ -43,7 +44,7 @@ export default function OnboardingPerfil({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([listarDepartamentos(), listarPuestos(), listarUsuarios()])
+    Promise.all([listarDepartamentos(), listarPuestos(), listarUsuariosDirectorioBasico()])
       .then(([deps, puestosCargados, usuarios]) => {
         setDepartamentos(deps)
         setPuestos(puestosCargados)

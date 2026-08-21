@@ -83,6 +83,18 @@ class UsuarioOut(UsuarioBase):
     activo: bool
 
 
+class UsuarioBasicoOut(BaseModel):
+    """Versión reducida de UsuarioOut para GET /usuarios/directorio-basico:
+    sin correo ni rol — solo lo necesario para pickers de "elegí una
+    persona" (onboarding, reasignación) sin exponer el directorio completo
+    a cualquier identidad autenticada. Ver diagnóstico hallazgo #2."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre: str
+    departamento_id: int | None = None
+
+
 class MiembroCABCreate(BaseModel):
     usuario_id: int
     tipo_cab: TipoCAB

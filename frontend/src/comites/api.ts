@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut } from '../core/api'
+import type { UsuarioBasico } from '../usuarios/types'
 import type {
   ComiteIdea,
   ComiteIdeaDetalle,
@@ -10,6 +11,12 @@ import type {
 
 export function colaComite(estado: EstadoComite = 'pendiente'): Promise<ComiteIdeaDetalle[]> {
   return apiGet<ComiteIdeaDetalle[]>(`/comites/cola?estado=${estado}`)
+}
+
+// Candidatos ya filtrados por activo en el backend (ver diagnóstico
+// hallazgo #2, tanda 3) — sin correo ni rol en la respuesta.
+export function candidatosReasignar(ideaId: number): Promise<UsuarioBasico[]> {
+  return apiGet<UsuarioBasico[]>(`/comites/candidatos-reasignar/${ideaId}`)
 }
 
 export function misDepartamentos(): Promise<DepartamentoVisible[]> {

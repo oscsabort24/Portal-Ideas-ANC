@@ -8,12 +8,20 @@ import type {
   PermisoRolActualizar,
   Puesto,
   Usuario,
+  UsuarioBasico,
   UsuarioCreate,
   UsuarioUpdate,
 } from './types'
 
 export function listarUsuarios(): Promise<Usuario[]> {
   return apiGet<Usuario[]>('/usuarios')
+}
+
+// Sin correo ni rol — para pickers de "elegí una persona" accesibles a
+// cualquier identidad autenticada (no solo admin), ver diagnóstico #2:
+// listarUsuarios() completo ahora requiere admin.
+export function listarUsuariosDirectorioBasico(): Promise<UsuarioBasico[]> {
+  return apiGet<UsuarioBasico[]>('/usuarios/directorio-basico')
 }
 
 export function obtenerUsuario(id: number): Promise<Usuario> {

@@ -59,6 +59,15 @@ export interface Usuario {
   activo: boolean
 }
 
+// Versión reducida de Usuario para GET /usuarios/directorio-basico (sin
+// correo ni rol) — usada en pickers de "elegí una persona" por cualquier
+// identidad autenticada, no solo admin. Ver diagnóstico hallazgo #2.
+export interface UsuarioBasico {
+  id: number
+  nombre: string
+  departamento_id: number | null
+}
+
 export type ClavePermiso =
   | 've_todas_las_ideas'
   | 've_flow_control'

@@ -44,11 +44,26 @@ def _validar_puesto_unico(
 @router.get("", response_model=list[schemas.UsuarioOut])
 def listar_usuarios(
     db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(requerir_admin),
+):
+    # Directorio completo (correo, rol, etc.) — solo admin. Para pickers de
+    # "elegí una persona" (onboarding, reasignación) que necesitan listar
+    # personas sin ser admin, ver GET /usuarios/directorio-basico abajo.
+    return db.query(models.Usuario).all()
+
+
+@router.get("/directorio-basico", response_model=list[schemas.UsuarioBasicoOut])
+def listar_usuarios_directorio_basico(
+    db: Session = Depends(get_db),
     _identidad: IdentidadAutenticada = Depends(obtener_identidad_autenticada),
 ):
-    # Identidad y no usuario registrado: el onboarding llama a este endpoint
-    # para llenar el selector "Reporta a" ANTES de que exista el Usuario de
-    # quien lo está llenando (ver OnboardingPerfil.tsx).
+    """Versión reducida de listar_usuarios (sin correo ni rol) para
+    cualquier identidad autenticada — incluida una sin Usuario todavía
+    (onboarding). Usado por pickers de "elegí una persona": selector de
+    "reporta a" en OnboardingPerfil.tsx, y los pickers de reasignación en
+    MisRevisiones.tsx/ColaComite.tsx. Debe declararse ANTES de
+    /{usuario_id} para no interpretarse como un usuario_id numérico (mismo
+    motivo que /por-correo)."""
     return db.query(models.Usuario).all()
 
 
