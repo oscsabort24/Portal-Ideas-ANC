@@ -5,10 +5,19 @@ import DocumentosGenerados from '../../documentos/components/DocumentosGenerados
 import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
 import { listarUsuariosDirectorioBasico } from '../../usuarios/api'
 import type { UsuarioBasico } from '../../usuarios/types'
-import { aceptarReasignacion, aprobar, candidatosReasignar, misRevisiones, pedirCambios, reasignar, rechazarReasignacion } from '../api'
+import {
+  aceptarReasignacion,
+  aprobar,
+  candidatosReasignar,
+  misRevisiones,
+  pedirCambios,
+  reasignar,
+  rechazar,
+  rechazarReasignacion,
+} from '../api'
 import type { RevisionDetalle } from '../types'
 
-type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' | 'rechazar-reasignacion' } | null
+type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' | 'rechazar' | 'rechazar-reasignacion' } | null
 
 export default function MisRevisiones() {
   const usuarioActual = useUsuarioActual()
@@ -83,6 +92,21 @@ export default function MisRevisiones() {
       cerrarAccion()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo enviar la retroalimentación')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function handleRechazar(ideaId: number) {
+    if (!retroalimentacion.trim()) return
+    setEnviando(true)
+    setError(null)
+    try {
+      await rechazar(ideaId, retroalimentacion.trim())
+      setRevisiones((prev) => prev.filter((r) => r.idea_id !== ideaId))
+      cerrarAccion()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo rechazar la idea')
     } finally {
       setEnviando(false)
     }
@@ -199,6 +223,30 @@ export default function MisRevisiones() {
                 </div>
               )}
 
+              {accionAbierta?.revisionId === r.id && accionAbierta.tipo === 'rechazar' && (
+                <div className="form-field" style={{ marginTop: 12 }}>
+                  <label className="form-label" htmlFor={`motivo-rechazo-idea-${r.id}`}>Motivo de rechazo</label>
+                  <textarea
+                    id={`motivo-rechazo-idea-${r.id}`}
+                    className="form-input"
+                    rows={3}
+                    value={retroalimentacion}
+                    onChange={(e) => setRetroalimentacion(e.target.value)}
+                    placeholder="Explica por qué se rechaza esta idea..."
+                  />
+                  <div className="form-row" style={{ marginTop: 10 }}>
+                    <button
+                      className="btn-primary"
+                      disabled={!retroalimentacion.trim() || enviando}
+                      onClick={() => handleRechazar(r.idea_id)}
+                    >
+                      {enviando ? 'Enviando...' : 'Confirmar rechazo'}
+                    </button>
+                    <button className="btn-secundario" onClick={cerrarAccion}>Cancelar</button>
+                  </div>
+                </div>
+              )}
+
               {r.estado === 'pendiente_aceptacion_reasignacion' && r.propuesto_a_id === usuarioActual.id && (
                 <div className="persona-card-actions" style={{ marginTop: 12 }}>
                   {accionAbierta?.revisionId === r.id && accionAbierta.tipo === 'rechazar-reasignacion' ? (
@@ -282,6 +330,12 @@ export default function MisRevisiones() {
                     onClick={() => abrirReasignar(r.id, r.idea_id)}
                   >
                     Reasignar
+                  </button>
+                  <button
+                    className="btn-small peligro"
+                    onClick={() => setAccionAbierta({ revisionId: r.id, tipo: 'rechazar' })}
+                  >
+                    Rechazar
                   </button>
                 </div>
               )}

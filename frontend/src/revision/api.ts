@@ -24,6 +24,12 @@ export function aprobar(ideaId: number): Promise<Revision> {
   return apiPost<Revision>(`/revision/${ideaId}/aprobar`, {})
 }
 
+// Rechazo FINAL — Opción A, ver diseno-pendiente/apelacion-rechazo-revisor.md.preview
+// para la Opción C (apelación al comité) descartada por ahora.
+export function rechazar(ideaId: number, motivoRechazo: string): Promise<Revision> {
+  return apiPost<Revision>(`/revision/${ideaId}/rechazar`, { motivo_rechazo: motivoRechazo })
+}
+
 export function pedirCambios(ideaId: number, retroalimentacion: string): Promise<Revision> {
   return apiPost<Revision>(`/revision/${ideaId}/pedir-cambios`, { retroalimentacion })
 }
