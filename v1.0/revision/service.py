@@ -56,6 +56,14 @@ def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
 
 
 def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | None:
+    # ORDER BY Usuario.id: sin esto, con más de un usuario elegible activo en
+    # el mismo departamento, el resultado dependía del plan de ejecución de
+    # SQL Server (no determinístico) — se reprodujo en vivo el 19/8/2026 con
+    # los ids 4 (admin) y 6 (Armando) en el mismo departamento. No hay un
+    # campo de antigüedad en Usuario, así que id ascendente (= orden de alta)
+    # es el proxy determinístico más simple; no es la solución definitiva —
+    # esa es activar ResponsableArea (Fase 3, ver nota del módulo arriba)
+    # cuando exista el seed real de datos del negocio.
     return (
         db.query(Usuario)
         .filter(
@@ -63,6 +71,7 @@ def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | Non
             Usuario.rol.in_(_roles_habilitados_revisor(db)),
             Usuario.activo == True,  # noqa: E712
         )
+        .order_by(Usuario.id.asc())
         .first()
     )
 
