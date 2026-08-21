@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from clasificacion.service import crear_clasificacion_para_idea
 from core.database import get_db
+from core.reasignacion import obtener_bloqueado_para_reasignar
 from ideas.models import HistorialIdea, MensajeEntrevista, RolMensaje, TipoEventoIdea
 from ideas.service import siguiente_orden
 from permisos.models import ClavePermiso
@@ -190,8 +191,14 @@ def reasignar(
 
     revisor_id NO se toca acá: hasta la aceptación, la idea sigue siendo
     responsabilidad de quien la tiene. Ver RevisionIdea.propuesto_a_id.
+
+    Usa obtener_bloqueado_para_reasignar (FOR UPDATE) en vez de
+    _obtener_revision: dos propuestas casi simultáneas sobre la misma idea
+    no deben poder pisarse — ver core/reasignacion.py.
     """
-    revision = _obtener_revision(db, idea_id)
+    revision = obtener_bloqueado_para_reasignar(db, RevisionIdea, idea_id)
+    if not revision:
+        raise HTTPException(status_code=404, detail="No existe revisión para esta idea")
     _validar_revisor_asignado(revision, usuario_actual)
     if revision.estado != EstadoRevision.pendiente_revision:
         raise HTTPException(status_code=400, detail="Esta idea ya no está pendiente de revisión")

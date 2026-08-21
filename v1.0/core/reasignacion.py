@@ -53,6 +53,47 @@ class MixinReasignacion:
         return relationship("Usuario", foreign_keys=[cls.reasignacion_solicitada_por_id])
 
 
+def obtener_bloqueado_para_reasignar(db, modelo, idea_id: int):
+    """Fetch de la fila `idea_id` en `modelo` (RevisionIdea o ComiteIdea) con
+    lock de fila — usar SIEMPRE en el endpoint de "proponer reasignación"
+    (revision/router.py:reasignar, comites/router.py:reasignar) en vez de un
+    query plano.
+
+    NO usa `.with_for_update()`: T-SQL no tiene una cláusula FOR UPDATE
+    estándar, y el dialecto mssql de SQLAlchemy IGNORA `.with_for_update()`
+    en silencio (sin error, sin warning) — se comprobó en vivo compilando el
+    query contra `mssql.dialect()`: el SQL generado no cambia en absoluto,
+    y una prueba con 2 hilos concurrentes confirmó que ambos pisaban la
+    misma fila sin ningún bloqueo. El lock real en SQL Server requiere un
+    hint de tabla explícito vía `.with_hint(modelo, "WITH (UPDLOCK, ROWLOCK)",
+    "mssql")` — UPDLOCK toma un lock de escritura desde el SELECT (no solo
+    en el UPDATE posterior), ROWLOCK evita que SQL Server escale el lock a
+    nivel de página/tabla.
+
+    Sin este lock, dos propuestas de reasignación casi simultáneas sobre la
+    misma idea podían pasar ambas el chequeo `estado == pendiente` antes de
+    que la primera hiciera commit — la segunda pisaba en silencio
+    propuesto_a_id/reasignacion_solicitada_por_id de la primera, sin error ni
+    aviso a nadie. Mismo problema de fondo que
+    clasificacion/service.py:crear_clasificacion_para_idea ya resuelve para
+    doble-aprobación (ahí con re-query + reutilización de fila, porque el
+    conflicto es un INSERT contra un UNIQUE constraint; acá es un UPDATE
+    contra el mismo row, así que el fix correcto es un lock de fila, no un
+    re-query).
+
+    Con este lock, la segunda request queda bloqueada hasta que la primera
+    termine su transacción (commit o rollback) y, al reanudar, ve el estado
+    YA actualizado por la primera — el chequeo `if entidad.estado != ...`
+    que sigue después de este fetch la rechaza limpiamente con un 400 en vez
+    de sobreescribir nada."""
+    return (
+        db.query(modelo)
+        .filter_by(idea_id=idea_id)
+        .with_hint(modelo, "WITH (UPDLOCK, ROWLOCK)", "mssql")
+        .first()
+    )
+
+
 def sumar_dias_habiles(desde: datetime, dias: int) -> datetime:
     resultado = desde
     restantes = dias

@@ -11,6 +11,7 @@ from comites.rice import calcular_calificacion
 from comites.service import departamentos_visibles, idea_departamento_visible
 from core.database import get_db
 from core.reasignacion import aplicar_rechazo_reasignacion as _aplicar_rechazo_generico
+from core.reasignacion import obtener_bloqueado_para_reasignar
 from ideas.models import HistorialIdea, Idea, TipoEventoIdea
 from usuarios import models as usuarios_models
 from usuarios.dependencies import obtener_usuario_actual
@@ -168,8 +169,14 @@ def reasignar(
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
     """PROPONE que otro miembro del CAB atienda esta idea — no ejecuta el
-    cambio de inmediato, mismo patrón que revision/router.py:reasignar."""
-    comite = _obtener_comite(db, idea_id)
+    cambio de inmediato, mismo patrón que revision/router.py:reasignar.
+
+    Usa obtener_bloqueado_para_reasignar (FOR UPDATE) en vez de
+    _obtener_comite: dos propuestas casi simultáneas sobre la misma idea no
+    deben poder pisarse — ver core/reasignacion.py."""
+    comite = obtener_bloqueado_para_reasignar(db, ComiteIdea, idea_id)
+    if not comite:
+        raise HTTPException(status_code=404, detail="No existe registro de comité para esta idea")
     _validar_acceso_comite_idea(db, usuario_actual, comite)
     if comite.estado != EstadoComite.pendiente:
         raise HTTPException(status_code=400, detail="Esta idea no está pendiente en el comité")
