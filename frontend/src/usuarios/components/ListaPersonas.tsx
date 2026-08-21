@@ -98,7 +98,7 @@ export default function ListaPersonas() {
 
       <div className="tab-actions-row">
         <p className="nota-temporal">
-          Registro manual temporal — reemplazado por inicio de sesión con Microsoft (Entra ID) cuando esté disponible.
+          Alta manual — para dar de alta a alguien antes de que inicie sesión por primera vez con Microsoft.
         </p>
         <button
           className="btn-primary"
