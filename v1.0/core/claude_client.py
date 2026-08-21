@@ -576,13 +576,17 @@ def generar_contenido_documentos(historial: list[dict], tipos: list[str]) -> dic
             # llamada genera el contenido narrativo completo de hasta 6
             # documentos a la vez — con un límite más bajo la respuesta se
             # corta a mitad de generarse y produce JSON inválido ("EOF while
-            # parsing"). Se subió de 8192 porque en Sonnet 5 el razonamiento
-            # adaptativo (activo al omitir `thinking`) consume parte del mismo
-            # presupuesto, así que el margen real era menor que el declarado.
+            # parsing").
             #
             # 16000 es el techo práctico sin streaming: por encima de ~16K el
             # SDK arriesga timeout de HTTP y habría que pasar a
             # _client.messages.stream() + get_final_message().
+            #
+            # thinking deshabilitado: mismo fix que generar_respuesta — sin
+            # esto el razonamiento adaptativo de Sonnet 5 compite por
+            # presupuesto de tokens con el grammar del Structured Output y
+            # puede cortar la respuesta a mitad de generarse.
+            thinking={"type": "disabled"},
             max_tokens=16000,
             system=(
                 f"Redacta el contenido para estos tipos de documento: {', '.join(tipos)}.\n\n"
@@ -700,9 +704,8 @@ def clasificar_idea(historial: list[dict], criterio_texto: str) -> dict | None:
     try:
         response = _client.messages.parse(
             model=settings.claude_model,
-            # 4096, no 1024 — misma razón que generar_respuesta: en Sonnet 5
-            # el razonamiento adaptativo está activo al omitir `thinking` y
-            # comparte presupuesto con la respuesta.
+            # 4096, no 1024 — ver generar_respuesta.
+            thinking={"type": "disabled"},
             max_tokens=4096,
             system=_CRITERIOS_CLASIFICACION_BASE,
             messages=mensajes_anthropic,
@@ -818,6 +821,7 @@ def asignar_revisor_ia(
         response = _client.messages.parse(
             model=settings.claude_model,
             # 4096, no 1024 — ver generar_respuesta.
+            thinking={"type": "disabled"},
             max_tokens=4096,
             system=criterio_texto,
             messages=mensajes_anthropic,
@@ -898,6 +902,7 @@ def analizar_riesgo_idea(historial: list[dict]) -> dict | None:
         response = _client.messages.parse(
             model=settings.claude_model,
             # 4096, no 1024 — ver generar_respuesta.
+            thinking={"type": "disabled"},
             max_tokens=4096,
             system=_CRITERIOS_ANALISIS_RIESGO,
             messages=mensajes_anthropic,
@@ -948,6 +953,7 @@ def responder_pregunta_idea(historial: list[dict], pregunta: str) -> str:
             # 4096, no 1024 — ver generar_respuesta. Acá además la respuesta
             # es texto libre que se muestra tal cual en el mini-chat, así que
             # un corte por presupuesto se ve como una frase a medias.
+            thinking={"type": "disabled"},
             max_tokens=4096,
             system=(
                 "Eres un asistente que ayuda a quien revisa o aprueba una idea a "
@@ -979,12 +985,15 @@ def responder_pregunta_idea(historial: list[dict], pregunta: str) -> str:
 
     # BUG REAL encontrado en diagnóstico: `response.content[0].text` asumía
     # que el primer bloque siempre es texto, pero con razonamiento adaptativo
-    # activo (ver generar_respuesta más arriba) el primer bloque es
-    # SIEMPRE un ThinkingBlock, no un TextBlock — `.text` no existe ahí y
-    # esto rompía el endpoint el 100% de las veces (no intermitente), con el
-    # mismo síntoma de "CORS bloqueado" que el except Exception de arriba
-    # ahora atrapa. El fix real es buscar el primer bloque de tipo "text" en
-    # vez de asumir la posición 0.
+    # activo el primer bloque era SIEMPRE un ThinkingBlock, no un TextBlock —
+    # `.text` no existe ahí y esto rompía el endpoint el 100% de las veces
+    # (no intermitente), con el mismo síntoma de "CORS bloqueado" que el
+    # except Exception de arriba atrapa. El fix real fue buscar el primer
+    # bloque de tipo "text" en vez de asumir la posición 0.
+    #
+    # Con `thinking: disabled` (ver más abajo) ya no debería aparecer ningún
+    # ThinkingBlock, pero este loop se deja como defensa — no tiene costo y
+    # cubre un cambio de comportamiento futuro del SDK/modelo.
     for bloque in response.content:
         if bloque.type == "text":
             return bloque.text
@@ -1019,6 +1028,7 @@ def generar_resumen_idea(historial: list[dict]) -> str | None:
     try:
         response = _client.messages.create(
             model=settings.claude_model,
+            thinking={"type": "disabled"},
             max_tokens=1024,
             system=(
                 "Eres un asistente que resume ideas de mejora para quien las revisa o "
@@ -1045,9 +1055,9 @@ def generar_resumen_idea(historial: list[dict]) -> str | None:
         logger.exception("generar_resumen_idea: excepción no prevista")
         return None
 
-    # Mismo cuidado que responder_pregunta_idea: con razonamiento adaptativo
-    # activo el primer bloque puede ser un ThinkingBlock, no texto — no
-    # asumir response.content[0].
+    # Mismo cuidado que responder_pregunta_idea: sin `thinking: disabled` el
+    # primer bloque podía ser un ThinkingBlock, no texto — se deja este loop
+    # como defensa aunque ya no debería aparecer ninguno.
     for bloque in response.content:
         if bloque.type == "text":
             return bloque.text
