@@ -92,6 +92,13 @@ def construir_linea_tiempo(db: Session, idea: Idea) -> list[dict]:
                 "fecha": revision.fecha_resolucion,
                 "color": "exito",
             })
+        elif revision.estado == EstadoRevision.rechazada and revision.fecha_resolucion:
+            eventos.append({
+                "tipo": "revision_rechazada",
+                "descripcion": f'Rechazada por el revisor de área ({revision.revisor.nombre}): "{revision.motivo_rechazo}"',
+                "fecha": revision.fecha_resolucion,
+                "color": "peligro",
+            })
 
     clasificacion = db.query(ClasificacionIdea).filter_by(idea_id=idea.id).first()
     if clasificacion and clasificacion.clasificacion and clasificacion.fecha_clasificacion:

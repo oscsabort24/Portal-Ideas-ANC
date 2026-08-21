@@ -168,6 +168,42 @@ def aprobar(
     return revision
 
 
+@router.post("/{idea_id}/rechazar", response_model=schemas.RevisionOut)
+def rechazar(
+    idea_id: int,
+    payload: schemas.RechazarRequest,
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    """Rechazo FINAL del encargado de área — Opción A del diseño de "4ta
+    acción del revisor" (ver diseno-pendiente/apelacion-rechazo-revisor.md.preview
+    para la Opción C, apelación al comité, descartada por ahora). Mismo
+    patrón que comites/router.py:rechazar: no se puede reabrir ni
+    reasignar — la idea NUNCA llega a ComiteIdea (esa fila solo se crea
+    al aprobar, ver crear_clasificacion_para_idea más abajo).
+
+    El motivo se hace visible al autor vía la línea de tiempo
+    (ideas/service.py:construir_linea_tiempo), mismo mecanismo que ya usa
+    ComiteIdea.motivo_rechazo — no se agrega como MensajeEntrevista (a
+    diferencia de pedir-cambios) porque no hay ninguna acción posterior
+    que el autor deba tomar en la entrevista: la idea queda cerrada.
+    """
+    if not payload.motivo_rechazo.strip():
+        raise HTTPException(status_code=400, detail="El motivo de rechazo no puede estar vacío")
+
+    revision = _obtener_revision(db, idea_id)
+    _validar_revisor_asignado(revision, usuario_actual)
+    if revision.estado != EstadoRevision.pendiente_revision:
+        raise HTTPException(status_code=400, detail="Esta idea ya no está pendiente de revisión")
+
+    revision.estado = EstadoRevision.rechazada
+    revision.motivo_rechazo = payload.motivo_rechazo.strip()
+    revision.fecha_resolucion = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(revision)
+    return revision
+
+
 @router.post("/{idea_id}/pedir-cambios", response_model=schemas.RevisionOut)
 def pedir_cambios(
     idea_id: int,

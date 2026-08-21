@@ -21,6 +21,13 @@ class EstadoRevision(str, enum.Enum):
     # original — la titularidad no se transfiere hasta la aceptación (ver
     # RevisionIdea.propuesto_a_id).
     pendiente_aceptacion_reasignacion = "pendiente_aceptacion_reasignacion"
+    # Rechazo FINAL del encargado de área — mismo patrón que
+    # EstadoComite.rechazada: no se puede reabrir ni reasignar. La idea
+    # nunca llega a ComiteIdea (esa fila solo se crea al aprobar). Opción A
+    # del diseño de "4ta acción del revisor" — ver
+    # diseno-pendiente/apelacion-rechazo-revisor.md.preview para la Opción C
+    # (apelación al comité) descartada por ahora.
+    rechazada = "rechazada"
 
 
 class OrigenAsignacion(str, enum.Enum):
@@ -58,6 +65,9 @@ class RevisionIdea(Base, MixinReasignacion):
         Enum(EstadoRevision, name="estado_revision"), nullable=False
     )
     retroalimentacion: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
+    # Mismo patrón que ComiteIdea.motivo_rechazo — solo se llena cuando
+    # estado == rechazada.
+    motivo_rechazo: Mapped[str | None] = mapped_column(Unicode(), nullable=True)
     fecha_asignacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fecha_resolucion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

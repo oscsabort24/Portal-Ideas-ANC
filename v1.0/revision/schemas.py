@@ -21,6 +21,7 @@ class RevisionOut(BaseModel):
     revisor_id: int | None
     estado: EstadoRevision
     retroalimentacion: str | None
+    motivo_rechazo: str | None
     fecha_asignacion: datetime | None
     fecha_resolucion: datetime | None
     departamento_sugerido_ia_id: int | None
@@ -72,6 +73,10 @@ class HistorialIdeaOut(BaseModel):
 
 class PedirCambiosRequest(BaseModel):
     retroalimentacion: str = Field(min_length=1)
+
+
+class RechazarRequest(BaseModel):
+    motivo_rechazo: str = Field(min_length=1)
 
 
 class HistorialRetroalimentacionOut(BaseModel):
