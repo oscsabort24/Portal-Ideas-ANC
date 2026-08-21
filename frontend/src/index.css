@@ -1571,28 +1571,24 @@ select.form-input { background: var(--surface); cursor: pointer; }
    FLOW CONTROL — PIPELINE VISUAL
 ───────────────────────────────────────────── */
 .flow-pipeline {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  row-gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 160px));
+  gap: 20px 16px;
+  justify-content: start;
   margin-top: 16px;
 }
 
 .flow-pipeline-item {
-  display: flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
+  position: relative;
 }
 
 .flow-pipeline-nodo {
-  flex: 1;
-  min-width: 138px;
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border-light);
   border-top: 3px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px 14px 14px;
+  padding: 10px 12px 12px;
   text-align: center;
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition), transform var(--transition);
@@ -1605,21 +1601,25 @@ select.form-input { background: var(--surface); cursor: pointer; }
 .flow-pipeline-nodo--clickeable { cursor: pointer; }
 .flow-pipeline-nodo--clickeable:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
 
-/* Línea que sale del borde derecho de un nodo y llega al borde izquierdo
-   del siguiente, con una punta de flecha pegada al final — pensado para
-   el layout de escritorio sin wrap; si las tarjetas saltan de línea en
-   pantallas angostas, el conector simplemente queda más corto/suelto. */
+/* Con grid, el conector ya no es un hermano flex que ocupa su propio
+   ancho — es un overlay posicionado absolutamente que sobresale hacia
+   la derecha de la tarjeta, dentro del gap de 16px entre columnas. Al
+   estar fuera de flujo (position: absolute) no afecta el ancho de la
+   celda de grid. */
 .flow-pipeline-conector {
-  flex: 0 1 36px;
-  min-width: 20px;
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
+  width: 16px;
+  pointer-events: none;
 }
 
 .flow-pipeline-conector-linea {
-  flex: 1;
+  width: 6px;
   height: 2px;
-  min-width: 8px;
   background: var(--text-light);
 }
 
@@ -1627,7 +1627,7 @@ select.form-input { background: var(--surface); cursor: pointer; }
   flex-shrink: 0;
   font-size: 14px;
   color: var(--text-light);
-  margin-left: -3px;
+  margin-left: 1px;
 }
 
 .flow-pipeline-led {
