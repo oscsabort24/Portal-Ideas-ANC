@@ -1,12 +1,14 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from comites import schemas
 from comites.models import ComiteIdea, EstadoComite, RiceEvaluacion
 from comites.rice import calcular_calificacion
-from comites.service import departamentos_visibles
+from comites.service import departamentos_visibles, idea_departamento_visible
 from core.database import get_db
 from core.reasignacion import aplicar_rechazo_reasignacion as _aplicar_rechazo_generico
 from ideas.models import HistorialIdea, Idea, TipoEventoIdea
@@ -14,6 +16,7 @@ from usuarios import models as usuarios_models
 from usuarios.dependencies import obtener_usuario_actual
 
 router = APIRouter(prefix="/comites", tags=["comites"])
+logger = logging.getLogger(__name__)
 
 
 def _validar_acceso_comite_idea(db: Session, usuario: usuarios_models.Usuario, comite: ComiteIdea) -> None:
@@ -22,9 +25,7 @@ def _validar_acceso_comite_idea(db: Session, usuario: usuarios_models.Usuario, c
     if not usuario.activo:
         raise HTTPException(status_code=403, detail="Usuario inactivo")
     departamentos = departamentos_visibles(db, usuario)
-    if departamentos is None:
-        return
-    if comite.idea.autor.departamento_id not in departamentos:
+    if not idea_departamento_visible(comite.idea.autor.departamento_id, departamentos):
         raise HTTPException(
             status_code=403, detail="Esta idea no pertenece a un departamento asignado a tu CAB"
         )
@@ -49,8 +50,27 @@ def cola_comite(
         .filter(ComiteIdea.estado == estado)
     )
     if departamentos is not None:
-        query = query.filter(usuarios_models.Usuario.departamento_id.in_(departamentos))
-    return query.order_by(ComiteIdea.creado_en.asc(), ComiteIdea.id.asc()).all()
+        # OR ... IS NULL: un autor sin departamento_id asignado debe seguir
+        # siendo visible para cualquier miembro de CAB — un filtro IN() solo
+        # nunca matchea NULL en SQL y la idea desaparecería en silencio (ver
+        # comites/service.py:idea_departamento_visible).
+        query = query.filter(
+            or_(
+                usuarios_models.Usuario.departamento_id.in_(departamentos),
+                usuarios_models.Usuario.departamento_id.is_(None),
+            )
+        )
+    resultado = query.order_by(ComiteIdea.creado_en.asc(), ComiteIdea.id.asc()).all()
+
+    if departamentos is not None:
+        sin_departamento = [c.idea_id for c in resultado if c.idea.autor.departamento_id is None]
+        if sin_departamento:
+            logger.warning(
+                "cola_comite: %s idea(s) de autores sin departamento_id visibles para "
+                "usuario_id=%s por el fallback de departamento nulo: idea_ids=%s",
+                len(sin_departamento), usuario_actual.id, sin_departamento,
+            )
+    return resultado
 
 
 @router.get("/mis-departamentos", response_model=list[schemas.DepartamentoVisibleOut])
@@ -133,7 +153,7 @@ def _validar_miembro_destino(db: Session, comite: ComiteIdea, usuario_id: int) -
     if destino.rol == usuarios_models.RolUsuario.admin:
         return destino
     departamentos = departamentos_visibles(db, destino)
-    if departamentos is not None and comite.idea.autor.departamento_id not in departamentos:
+    if not idea_departamento_visible(comite.idea.autor.departamento_id, departamentos):
         raise HTTPException(
             status_code=400, detail=f"'{destino.nombre}' no tiene acceso al departamento de esta idea"
         )

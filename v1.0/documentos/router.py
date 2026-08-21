@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from comites.models import ComiteIdea
-from comites.service import departamentos_visibles
+from comites.service import departamentos_visibles, idea_departamento_visible
 from core.database import get_db
 from documentos import schemas
 from documentos.archivos import sanitizar_nombre_archivo
@@ -53,7 +53,7 @@ def _validar_acceso(db: Session, idea: Idea, usuario: usuarios_models.Usuario) -
     comite = db.query(ComiteIdea).filter_by(idea_id=idea.id).first()
     if comite:
         departamentos = departamentos_visibles(db, usuario)
-        if departamentos is None or idea.autor.departamento_id in departamentos:
+        if idea_departamento_visible(idea.autor.departamento_id, departamentos):
             return
 
     raise HTTPException(status_code=403, detail="No tienes acceso a los documentos de esta idea")
