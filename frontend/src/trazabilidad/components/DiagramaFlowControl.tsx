@@ -129,10 +129,11 @@ interface Conexion {
   estilo?: 'normal' | 'naranja'
   saleDesde?: Lado
   entraA?: Lado
-  /** Coordenada X absoluta por la que se enruta el tramo vertical central
-   * — para loops locales que necesitan rodear un nodo intermedio (ej.
-   * "reasignar" tiene que esquivar la fila de "pide resumen" que queda
-   * entre el rombo y su destino). */
+  /** Código de corredor por el que se enruta el tramo vertical central —
+   * para conexiones (hacia adelante o hacia atrás) que necesitan rodear
+   * nodos intermedios de la misma columna. Ver los códigos -1/-2/-3
+   * documentados junto a CONEXIONES más abajo — cada código es un
+   * corredor reusable, no una conexión particular. */
   viaX?: number
 }
 
@@ -165,11 +166,10 @@ const CONEXIONES: Conexion[] = [
   { desde: 'revisorRecibeIdea', hasta: 'revisorPideResumen' },
   { desde: 'revisorPideResumen', hasta: 'iaResumenRevision', saleDesde: 'izquierda', entraA: 'derecha' },
   { desde: 'revisorPideResumen', hasta: 'rombolRevisorDecide' },
-  // Los 3 loops locales/largos entran SIEMPRE por un lado (izquierda o
+  // Los loops locales/largos entran SIEMPRE por un lado (izquierda o
   // derecha) porque su último tramo es horizontal — usar 'arriba'/'abajo'
   // ahí (como estaba antes) hacía que la línea terminara flotando al
   // costado del nodo en vez de tocar su borde.
-  { desde: 'rombolRevisorDecide', hasta: 'revisorRecibeIdea', etiqueta: 'Reasignar', entraA: 'derecha', viaX: -1 },
   {
     desde: 'rombolRevisorDecide',
     hasta: 'entrevistaColaborador',
@@ -178,7 +178,23 @@ const CONEXIONES: Conexion[] = [
     entraA: 'izquierda',
     viaX: -2,
   },
-  { desde: 'rombolRevisorDecide', hasta: 'iaClasificaAuto', etiqueta: 'Aprobar' },
+  // Ciclo de reasignación del revisor (Reasignar) — mismo mecanismo que
+  // el del comité más abajo. La cadena propone -> responde -> (2do
+  // rechazo) vive entera en la columna 3, en filas nuevas justo debajo
+  // del rombo; el corredor -1 (columna 4, vacía en estas filas) es lo
+  // que evita que cualquier salto entre filas no-adyacentes pase por
+  // detrás de esos nodos nuevos.
+  { desde: 'rombolRevisorDecide', hasta: 'revisorProponeReasignacion', etiqueta: 'Reasignar' },
+  { desde: 'revisorProponeReasignacion', hasta: 'rombolDestinoResponde' },
+  { desde: 'rombolDestinoResponde', hasta: 'rombolSegundoRechazo', etiqueta: 'Rechaza' },
+  { desde: 'rombolDestinoResponde', hasta: 'rombolRevisorDecide', etiqueta: 'Sí', entraA: 'derecha', viaX: -1 },
+  { desde: 'rombolSegundoRechazo', hasta: 'rombolRevisorDecide', etiqueta: 'No', entraA: 'derecha', viaX: -1 },
+  { desde: 'rombolSegundoRechazo', hasta: 'sinAsignar', etiqueta: 'Sí', entraA: 'izquierda', viaX: -2 },
+  // "Rechazar" y "Aprobar" ya no son la fila siguiente inmediata (ahora
+  // hay 4 filas del ciclo de reasignación en el medio) — ambas necesitan
+  // el mismo corredor -1 para no pasar por detrás de esos nodos.
+  { desde: 'rombolRevisorDecide', hasta: 'revisorRechazoFinal', etiqueta: 'Rechazar', entraA: 'derecha', viaX: -1 },
+  { desde: 'rombolRevisorDecide', hasta: 'iaClasificaAuto', etiqueta: 'Aprobar', viaX: -1 },
   { desde: 'iaClasificaAuto', hasta: 'rombolHayCriterio' },
   { desde: 'rombolHayCriterio', hasta: 'iaPendienteClasificacion', etiqueta: 'No' },
   { desde: 'rombolHayCriterio', hasta: 'comiteEntraCola', etiqueta: 'Sí' },
@@ -189,18 +205,40 @@ const CONEXIONES: Conexion[] = [
   { desde: 'comitePideResumen', hasta: 'comiteRice' },
   { desde: 'comiteRice', hasta: 'iaRecalculaRice', saleDesde: 'izquierda', entraA: 'derecha' },
   { desde: 'comiteRice', hasta: 'rombolComiteDecide' },
-  { desde: 'rombolComiteDecide', hasta: 'rechazada', etiqueta: 'Rechazar' },
-  // "Aprobar" tiene que saltar por encima de "Rechazada" (está en el medio,
-  // misma columna) — jog hacia la IZQUIERDA (columna 4 es la última, un
-  // jog a la derecha se saldría del diagrama).
+  // Ciclo de reasignación del comité (Reasignar) — mismo mecanismo que
+  // el del revisor arriba. La cadena vive en columna 4, en filas nuevas
+  // justo debajo del rombo; el corredor -3 (columna 3, vacía en toda
+  // esta sección) es lo que evita que los saltos no-adyacentes pasen
+  // por detrás de esos nodos nuevos.
+  { desde: 'rombolComiteDecide', hasta: 'comiteProponeReasignacion', etiqueta: 'Reasignar' },
+  { desde: 'comiteProponeReasignacion', hasta: 'rombolDestinoComiteResponde' },
+  { desde: 'rombolDestinoComiteResponde', hasta: 'rombolSegundoRechazoComite', etiqueta: 'Rechaza' },
+  { desde: 'rombolDestinoComiteResponde', hasta: 'rombolComiteDecide', etiqueta: 'Sí', entraA: 'izquierda', viaX: -3 },
+  { desde: 'rombolSegundoRechazoComite', hasta: 'rombolComiteDecide', etiqueta: 'No', entraA: 'izquierda', viaX: -3 },
+  { desde: 'rombolSegundoRechazoComite', hasta: 'comiteQuedaSinResponsable', etiqueta: 'Sí' },
+  { desde: 'comiteQuedaSinResponsable', hasta: 'rombolComiteDecide', entraA: 'izquierda', viaX: -3 },
+  // "Rechazar" y "Aprobar" ya no son adyacentes al rombo (antes "Aprobar"
+  // ya saltaba 1 fila para esquivar "Rechazada"; ahora ambas saltan las
+  // 4 filas nuevas del ciclo de reasignación) — mismo corredor -3.
+  { desde: 'rombolComiteDecide', hasta: 'rechazada', etiqueta: 'Rechazar', entraA: 'izquierda', viaX: -3 },
   { desde: 'rombolComiteDecide', hasta: 'aprobada', etiqueta: 'Aprobar', entraA: 'izquierda', viaX: -3 },
 ]
 
 // Códigos especiales de viaX (se resuelven en runtime, relativos a la
-// posición real de los nodos involucrados — ver useConexiones):
-// -1 = loop local corto (mismo carril, hacia atrás)
-// -2 = gutter izquierdo del diagrama (loop largo)
-// -3 = gutter local, esquiva un nodo intermedio de la misma columna
+// posición real de los nodos involucrados — ver useConexiones). No son
+// "una conexión = un código": cada uno es un CORREDOR físico (una franja
+// vertical vacía) que reusan todas las conexiones que necesitan pasarlo,
+// sin importar si van hacia adelante o hacia atrás en el tiempo:
+// -1 = corredor derecho del carril Revisor (columna 4, vacía en las filas
+//      del rombo "Revisor decide" y su ciclo de reasignación) — usado por
+//      Reasignar-Sí, Reasignar-No (2do rechazo), Rechazar y Aprobar.
+// -2 = gutter izquierdo del diagrama entero (loop largo, cruza varios
+//      carriles) — usado por Pedir cambios y por el 2do rechazo de
+//      reasignación que vuelve a "Queda sin asignar".
+// -3 = corredor izquierdo del carril Comité (columna 3, vacía en toda la
+//      sección de "Comité decide" y su ciclo de reasignación) — usado por
+//      Reasignar-Sí, Reasignar-No (2do rechazo), el loop sin responsable,
+//      Rechazar y Aprobar.
 const GUTTER_DIAGRAMA = 14
 // Mayor al medio-ancho máximo de una tarjeta (240px de max-width → 120px
 // desde el centro) más margen — si no, el tramo vertical del jog pasa por
@@ -271,9 +309,9 @@ function useConexiones(
         const p2 = obtenerPunto(rectHasta, rectContenedor, conexion.entraA ?? 'arriba')
 
         let viaX: number | undefined
-        if (conexion.viaX === -1) viaX = p1.x + JOG_LOCAL // reasignar: local, hacia la derecha del carril Revisor (col4 está vacía ahí)
-        else if (conexion.viaX === -2) viaX = GUTTER_DIAGRAMA // pedir cambios: gutter izquierdo del diagrama
-        else if (conexion.viaX === -3) viaX = p1.x - JOG_LOCAL // comité aprobar: local, hacia la izquierda (col4 es la última, col3 está vacía ahí)
+        if (conexion.viaX === -1) viaX = p1.x + JOG_LOCAL // corredor derecho del carril Revisor (col4 vacía en esas filas)
+        else if (conexion.viaX === -2) viaX = GUTTER_DIAGRAMA // gutter izquierdo del diagrama entero
+        else if (conexion.viaX === -3) viaX = p1.x - JOG_LOCAL // corredor izquierdo del carril Comité (col3 vacía en esas filas)
 
         const { path, labelX, labelY } = calcularPath(p1, p2, viaX)
         resultado.push({ ...conexion, path, labelX, labelY })
@@ -462,7 +500,47 @@ export default function DiagramaFlowControl() {
 
         <Fila>
           <Celda columna={3}>
-            <NodoRombo id="rombolRevisorDecide" refPara={refPara} etiqueta="Revisor decide" descripcion="Aprobar, pedir cambios, o reasignar a otro revisor." />
+            <NodoRombo id="rombolRevisorDecide" refPara={refPara} etiqueta="Revisor decide" descripcion="Aprobar, pedir cambios, reasignar a otro revisor, o rechazar de forma final." />
+          </Celda>
+        </Fila>
+
+        {/* Ciclo de reasignación del revisor — mismo mecanismo que
+            core/reasignacion.py:MixinReasignacion (compartido con el
+            comité más abajo). Columna 3 porque quien propone y quien
+            responde son ambos "Revisor de área" — nunca columna 4,
+            aunque esté vacía en estas filas, para no atribuirle esta
+            acción al comité. */}
+        <Fila>
+          <Celda columna={3}>
+            <NodoRect
+              id="revisorProponeReasignacion"
+              refPara={refPara}
+              etiqueta="Propone reasignación a otro revisor"
+              descripcion="Queda pendiente_aceptacion_reasignacion — el revisor actual sigue siendo responsable hasta que el destino responda."
+            />
+          </Celda>
+        </Fila>
+
+        <Fila>
+          <Celda columna={3}>
+            <NodoRombo id="rombolDestinoResponde" refPara={refPara} etiqueta="¿El destino acepta?" descripcion="Quien recibe la propuesta decide — no automático." />
+          </Celda>
+        </Fila>
+
+        <Fila>
+          <Celda columna={3}>
+            <NodoRombo id="rombolSegundoRechazo" refPara={refPara} etiqueta="¿2do rechazo consecutivo?" descripcion="La racha se corta apenas alguien acepta o se asigna manualmente." />
+          </Celda>
+        </Fila>
+
+        <Fila>
+          <Celda columna={3}>
+            <NodoOval
+              id="revisorRechazoFinal"
+              refPara={refPara}
+              etiqueta="Rechazada por el revisor"
+              descripcion="Fin real — no llega a comité. Motivo visible para el autor en la línea de tiempo."
+            />
           </Celda>
         </Fila>
 
@@ -487,7 +565,7 @@ export default function DiagramaFlowControl() {
               id="comiteEntraCola"
               refPara={refPara}
               etiqueta="Idea entra a la cola del comité"
-              descripcion="Del tipo CAB correspondiente. Documentos quedan congelados desde acá."
+              descripcion="Visible para miembros de CAB con acceso al departamento del autor (tipo_cab quedó como metadata, ya no determina el acceso). Documentos quedan congelados desde acá."
             />
           </Celda>
         </Fila>
@@ -527,7 +605,44 @@ export default function DiagramaFlowControl() {
 
         <Fila>
           <Celda columna={4}>
-            <NodoRombo id="rombolComiteDecide" refPara={refPara} etiqueta="Comité decide" descripcion="Aprobar o rechazar la idea." />
+            <NodoRombo id="rombolComiteDecide" refPara={refPara} etiqueta="Comité decide" descripcion="Aprobar, rechazar, o reasignar a otro miembro del CAB." />
+          </Celda>
+        </Fila>
+
+        {/* Ciclo de reasignación del comité — mismo mecanismo que el del
+            revisor arriba (MixinReasignacion compartido). Columna 4:
+            quien propone y quien responde son miembros del CAB. */}
+        <Fila>
+          <Celda columna={4}>
+            <NodoRect
+              id="comiteProponeReasignacion"
+              refPara={refPara}
+              etiqueta="Propone que otro miembro del CAB atienda la idea"
+              descripcion="Queda pendiente_aceptacion_reasignacion — el estado no se mueve hasta que el destino responda."
+            />
+          </Celda>
+        </Fila>
+
+        <Fila>
+          <Celda columna={4}>
+            <NodoRombo id="rombolDestinoComiteResponde" refPara={refPara} etiqueta="¿El destino acepta?" descripcion="Quien recibe la propuesta decide — no automático." />
+          </Celda>
+        </Fila>
+
+        <Fila>
+          <Celda columna={4}>
+            <NodoRombo id="rombolSegundoRechazoComite" refPara={refPara} etiqueta="¿2do rechazo consecutivo?" descripcion="La racha se corta apenas alguien acepta." />
+          </Celda>
+        </Fila>
+
+        <Fila>
+          <Celda columna={4}>
+            <NodoRect
+              id="comiteQuedaSinResponsable"
+              refPara={refPara}
+              etiqueta="Vuelve a pendiente sin responsable"
+              descripcion="A diferencia de revisión, no hay estado bloqueante — visible para cualquiera con acceso al departamento."
+            />
           </Celda>
         </Fila>
 
