@@ -1,0 +1,50 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: portal-ideas-sqlserver
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "1450:1433"
+    volumes:
+      - portal_ideas_sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: portal-ideas-backend
+    restart: unless-stopped
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    env_file:
+      - .env.backend
+    ports:
+      - "8010:8010"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_AZURE_CLIENT_ID: ${VITE_AZURE_CLIENT_ID}
+        VITE_AZURE_TENANT_ID: ${VITE_AZURE_TENANT_ID}
+    container_name: portal-ideas-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8020:80"
+
+volumes:
+  portal_ideas_sqlserver_data:
