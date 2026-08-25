@@ -1,0 +1,6 @@
+# Los scripts de shell corren en Linux (servidor anccrwe03, contenedores).
+# Este repo se edita desde Windows con core.autocrlf=true, así que sin esta
+# regla un checkout o un commit podría dejarles finales de línea CRLF — y un
+# script con \r muere en el servidor con "bad interpreter: /usr/bin/env bash^M",
+# un error críptico que aparecería justo cuando se lo necesita (ver DEPLOY.md).
+*.sh text eol=lf
