@@ -3,9 +3,15 @@
 Prioriza un token real de Microsoft Entra ID (header 'Authorization: Bearer
 {token}', validado contra Azure AD en core/auth.py). Si no viene ese header,
 cae a X-Usuario-Id — ese fallback existe SOLO para desarrollo local sin
-Azure AD configurado (modo simulado del frontend, ver frontend/src/core/api.ts);
-en producción el frontend siempre manda Authorization real, así que esa rama
-nunca se ejercita ahí.
+Azure AD configurado (modo simulado del frontend, ver frontend/src/core/api.ts).
+
+Ese fallback está gateado por settings.entorno == "development", igual que
+/auth/dev-login (ver main.py). El gate NO es opcional: mandar X-Usuario-Id no
+requiere credencial alguna, así que sin él cualquiera puede actuar como
+cualquier usuario —incluido un admin— con solo adivinar un id entero. Antes
+se confiaba en que "el frontend en producción siempre manda Authorization
+real", pero eso describe al cliente legítimo, no a un atacante: quien ataca no
+usa nuestro frontend, hace la request a mano.
 
 Hay DOS dependencias de autenticación, y la diferencia importa:
 
@@ -27,6 +33,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.auth import AuthError, validar_token_azure
+from core.config import settings
 from core.database import get_db
 from usuarios import models
 
@@ -75,13 +82,16 @@ def obtener_identidad_autenticada(
         )
         return IdentidadAutenticada(correo=correo, usuario=usuario)
 
-    if x_usuario_id is not None:
+    # Mismo gate que /auth/dev-login (main.py): fuera de development se ignora
+    # el header por completo y se responde igual que si no hubiera venido, para
+    # no revelar que este fallback existe.
+    if x_usuario_id is not None and settings.entorno == "development":
         usuario = db.get(models.Usuario, x_usuario_id)
         if not usuario:
             raise HTTPException(status_code=401, detail="Usuario no encontrado")
         return IdentidadAutenticada(correo=usuario.correo, usuario=usuario)
 
-    raise HTTPException(status_code=401, detail="Falta autenticación: Authorization Bearer o X-Usuario-Id")
+    raise HTTPException(status_code=401, detail="Falta autenticación: Authorization Bearer")
 
 
 def obtener_usuario_actual(
