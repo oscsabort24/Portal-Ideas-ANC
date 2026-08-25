@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +31,29 @@ class Settings(BaseSettings):
     # En producción, IT/despliegue debe sobreescribir esta variable con el
     # dominio real del frontend — nunca dejar los puertos de localhost.
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:5174"
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def _rechazar_comodin_cors(cls, valor: str) -> str:
+        """Falla el arranque si CORS_ALLOWED_ORIGINS trae "*".
+
+        main.py monta CORSMiddleware con allow_credentials=True. Combinado con
+        un comodín, Starlette refleja CUALQUIER origen y le permite mandar
+        cookies y el header Authorization: cualquier sitio web podría hacer
+        requests autenticadas contra la API en nombre de un usuario logueado.
+
+        Se aborta el arranque en vez de loguear un warning a propósito: un
+        warning en un despliegue desatendido no lo lee nadie, y la app
+        quedaría corriendo abierta. Mejor no levantar.
+        """
+        if any(origen.strip() == "*" for origen in valor.split(",")):
+            raise ValueError(
+                'CORS_ALLOWED_ORIGINS no puede incluir "*": la app usa '
+                "allow_credentials=True (main.py), y esa combinación permite a "
+                "cualquier sitio hacer requests autenticadas contra la API. "
+                "Listá los dominios explícitamente, separados por coma."
+            )
+        return valor
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:
