@@ -2,8 +2,13 @@
 .env.docker
 .env.backend
 .env.docker.*
+# Respaldos sueltos: .env.bak / .env.backend.bak aparecieron en el servidor
+# sin quedar cubiertos por los patrones literales de arriba.
+*.bak
 node_modules/
 *.log
+# nohup.out no matchea *.log y queda como untracked a un "git add ." de distancia.
+nohup.out
 service-account-key.json
 client_secret*.json
 
