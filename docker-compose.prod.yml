@@ -8,7 +8,12 @@ services:
       MSSQL_SA_PASSWORD: ${SA_PASSWORD}
       MSSQL_PID: Developer
     ports:
-      - "1450:1433"
+      # Bindeado a 127.0.0.1 a propósito: sin el prefijo, Docker publica en
+      # 0.0.0.0 y SQL Server queda alcanzable desde toda la red. El backend
+      # no usa este mapeo (le habla a sqlserver:1433 por la red interna de
+      # compose), solo sirve para conectarse con un cliente SQL externo,
+      # vía túnel SSH contra el propio servidor.
+      - "127.0.0.1:1450:1433"
     volumes:
       - portal_ideas_sqlserver_data:/var/opt/mssql
     healthcheck:
