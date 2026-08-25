@@ -1,5 +1,7 @@
 .env
 .env.docker
+.env.backend
+.env.docker.*
 node_modules/
 *.log
 service-account-key.json
