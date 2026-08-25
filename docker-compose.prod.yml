@@ -6,7 +6,10 @@ services:
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: ${SA_PASSWORD}
-      MSSQL_PID: Developer
+      # Express, no Developer: Developer es gratuita pero su licencia prohíbe
+      # el uso en producción. Express sí está licenciada para producción, y
+      # su límite de 10 GB por base de datos sobra (la BD real pesa ~16 MB).
+      MSSQL_PID: Express
     ports:
       # Bindeado a 127.0.0.1 a propósito: sin el prefijo, Docker publica en
       # 0.0.0.0 y SQL Server queda alcanzable desde toda la red. El backend
