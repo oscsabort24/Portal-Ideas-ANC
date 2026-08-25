@@ -26,6 +26,7 @@ Hay DOS dependencias de autenticación, y la diferencia importa:
   Usuario registrado. Es la dependencia por defecto para todo lo demás.
 """
 
+import logging
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException
@@ -36,6 +37,8 @@ from core.auth import AuthError, validar_token_azure
 from core.config import settings
 from core.database import get_db
 from usuarios import models
+
+logger = logging.getLogger("uvicorn.error")
 
 
 @dataclass
@@ -65,7 +68,12 @@ def obtener_identidad_autenticada(
         try:
             claims = validar_token_azure(token)
         except AuthError as exc:
-            raise HTTPException(status_code=401, detail=str(exc)) from exc
+            # El motivo exacto (firma inválida / expirado / audience incorrecta)
+            # va SOLO al log del operador. Devolvérselo al cliente convierte
+            # este 401 en un oráculo: un atacante no autenticado puede sondear
+            # la validación y aprender por qué falla cada token que prueba.
+            logger.warning("Token de Azure rechazado: %s", exc)
+            raise HTTPException(status_code=401, detail="Token inválido") from exc
 
         # preferred_username es el claim estándar de Azure AD para el correo
         # de inicio de sesión; email/upn quedan de respaldo por si el tenant
