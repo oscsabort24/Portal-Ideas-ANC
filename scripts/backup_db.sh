@@ -70,7 +70,12 @@ ejecutar_sql() {
 }
 
 log "1/4 Generando el backup dentro del contenedor..."
-ejecutar_sql "BACKUP DATABASE [${BASE_DATOS}] TO DISK = N'${RUTA_TMP}' WITH INIT, COMPRESSION, STATS = 25;" \
+# Sin COMPRESSION a propósito: es una feature de Standard/Enterprise y en
+# Express falla con "BACKUP DATABASE WITH COMPRESSION is not supported on
+# Express Edition". Producción corre Express (ver docker-compose.prod.yml).
+# El backup sin comprimir pesa aproximadamente lo mismo que la base (~16 MB
+# hoy), así que 14 días de retención ocupan un espacio despreciable.
+ejecutar_sql "BACKUP DATABASE [${BASE_DATOS}] TO DISK = N'${RUTA_TMP}' WITH INIT, STATS = 25;" \
     2>&1 | sed 's/^/       /' | tee -a "$ARCHIVO_LOG"
 
 # Un backup que no se puede restaurar no sirve de nada. VERIFYONLY lee el
