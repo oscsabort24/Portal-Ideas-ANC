@@ -287,6 +287,81 @@ _RESPUESTA_REPREGUNTA = {
 }
 
 
+# ── Detección de turnos de relleno ──────────────────────────────────────
+#
+# El modelo a veces devuelve un JSON perfectamente válido cuyo `message` es
+# un token de relleno en vez de una pregunta. Casos REALES guardados en la
+# BD, los cuatro con degradado=False porque el único chequeo que había era
+# "¿está vacío?":
+#
+#   msg=229  (2026-07-28)  ''
+#   msg=3191 (2026-08-13)  'listo}'       <- llave suelta: fragmento de JSON
+#   msg=3319 (2026-08-18)  'test'
+#   msg=3357 (2026-08-19)  'placeholder'
+#
+# Es la misma familia que el texto destrozado documentado en
+# generar_respuesta (grammar del Structured Output), no un bug de lógica.
+# El daño es doble: la persona ve una respuesta absurda, y como quedan
+# marcados como contenido legítimo VUELVEN al historial que lee la IA en los
+# turnos siguientes (ver ideas/service.py:historial_para_ia).
+#
+# CALIBRACIÓN CONTRA DATOS REALES (193 turnos de asistente en la BD):
+#   longitud <15  -> 4 mensajes, y son EXACTAMENTE los 4 anómalos
+#   longitud 15-29 -> 0 mensajes
+#   longitud 30-59 -> 3 mensajes, todos legítimos (el más corto: 47)
+# O sea que no existe ni un turno legítimo por debajo de 47 caracteres. El
+# umbral se pone en 30, con margen deliberado por debajo de ese piso real
+# para no depender de que la muestra sea exhaustiva.
+_UMBRAL_MENSAJE_CORTO = 30
+
+# Tokens de relleno típicos de un modelo que "rellena" el campo. Se comparan
+# contra el mensaje COMPLETO normalizado, nunca por substring: "esto es una
+# prueba de concepto" es una respuesta legítima que contiene "prueba".
+_TOKENS_RELLENO = frozenset(
+    {
+        "test", "testing", "prueba", "dummy", "placeholder", "todo", "tbd",
+        "lorem", "lorem ipsum", "n/a", "na", "none", "null", "undefined",
+        "string", "texto", "mensaje", "message", "respuesta", "ok", "listo",
+        "xxx", "asdf", "foo", "bar",
+    }
+)
+
+# Un turno legítimo SIEMPRE termina una oración: la regla 1 del prompt es
+# "una sola pregunta por turno", así que en la práctica cierra con "?" o
+# con punto. Su ausencia en un mensaje corto es la señal fuerte.
+_PUNTUACION_FINAL = ("?", ".", "!", "…")
+
+
+def _motivo_mensaje_no_plausible(mensaje: str) -> str | None:
+    """Devuelve por qué este `message` no parece un turno real, o None.
+
+    Conservador a propósito: fuera del caso vacío, un mensaje solo se
+    descarta si es CORTO **y** además trae otra señal. Un falso positivo le
+    corta a la persona una respuesta buena, así que ninguna señal actúa sola
+    sobre un mensaje de largo normal.
+    """
+    if not mensaje:
+        return "vacío"
+
+    normalizado = mensaje.strip().lower().strip(" .!¡?¿\"'`*_-–—:;")
+
+    if normalizado in _TOKENS_RELLENO:
+        return "token de relleno"
+
+    # Restos del andamiaje JSON filtrados al texto (el caso 'listo}'). Solo
+    # se evalúa en mensajes cortos: una llave suelta dentro de un párrafo
+    # largo es mucho más probablemente contenido real que basura de decoding.
+    if len(mensaje) < _UMBRAL_MENSAJE_CORTO and any(c in mensaje for c in "{}[]"):
+        return "restos de JSON"
+
+    # Corto Y sin cierre de oración. Las dos condiciones juntas: "Correcto."
+    # (corto pero puntuado) y un párrafo largo sin punto final sobreviven.
+    if len(mensaje) < _UMBRAL_MENSAJE_CORTO and not mensaje.endswith(_PUNTUACION_FINAL):
+        return "corto y sin puntuación final"
+
+    return None
+
+
 def _criterio_entrevista_departamento(departamento_id: int | None) -> str | None:
     """Ajuste ADITIVO al prompt de entrevista según el departamento del
     autor de la idea — nunca sustituye _CRITERIOS_ENTREVISTA, solo se le
@@ -398,8 +473,14 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str, departamento_id:
     # de bloques del turno SÍ se conserva, que es dato válido.
     mensaje = parsed.message.strip()
     degradado = False
-    if not mensaje:
-        logger.warning("generar_respuesta: la IA devolvió un mensaje vacío; se usó el texto de respaldo")
+    motivo_relleno = _motivo_mensaje_no_plausible(mensaje)
+    if motivo_relleno is not None:
+        logger.warning(
+            "generar_respuesta: la IA devolvió un mensaje no plausible (%s): %r; "
+            "se usó el texto de respaldo",
+            motivo_relleno,
+            mensaje[:120],
+        )
         mensaje = "Perdón, se me fue la idea. ¿Me lo repetís?"
         # Este turno tampoco es contenido real de la IA: se marca degradado
         # para que no vuelva como contexto (ver ideas/service.py:historial_para_ia).
