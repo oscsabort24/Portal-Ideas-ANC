@@ -19,6 +19,7 @@ reapertura. Caso borde infrecuente, confirmado con el usuario que se deja
 así por ahora.
 """
 
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -32,6 +33,8 @@ from ideas.models import Idea
 from revision.models import EstadoRevision, HistorialRetroalimentacion, RevisionIdea
 from usuarios.models import MiembroCAB, Usuario
 
+logger = logging.getLogger("uvicorn.error")
+
 TOTAL_TIPOS_DOCUMENTO = len(TipoDocumento)
 
 # Orden canónico de las 10 etapas — el frontend lo usa tal cual para las
@@ -42,6 +45,7 @@ ESTADOS_FLOW: list[str] = [
     "revision_pendiente_asignacion",
     "revision_en_curso",
     "revision_cambios_solicitados",
+    "revision_rechazada",
     "clasificacion_pendiente",
     "comite_en_cola",
     "comite_rechazada",
@@ -74,15 +78,52 @@ def _derivar_estado(
     if revision.estado == EstadoRevision.pendiente_revision:
         return "revision_en_curso", revision.fecha_asignacion or revision.creado_en
 
+    if revision.estado == EstadoRevision.pendiente_aceptacion_reasignacion:
+        # Se COLAPSA a "en curso" a propósito: para el autor la idea sigue en
+        # revisión: que dos personas estén resolviendo quién la atiende es
+        # negociación interna que no cambia en qué etapa está ni qué se espera
+        # de él. Antes caía acá por descarte (la rama de "aprobada"), que daba
+        # el mismo resultado por casualidad, no por decisión.
+        return "revision_en_curso", revision.fecha_asignacion or revision.creado_en
+
     if revision.estado == EstadoRevision.cambios_solicitados:
         ultima_retro = ultima_retro_por_revision.get(revision.id)
         fecha = ultima_retro.creada_en if ultima_retro else (revision.fecha_resolucion or revision.creado_en)
         return "revision_cambios_solicitados", fecha
 
+    if revision.estado == EstadoRevision.rechazada:
+        # Terminal: el rechazo del encargado de área es final, no se reabre ni
+        # se reasigna (ver revision/models.py:EstadoRevision.rechazada) y la
+        # idea nunca llega a ClasificacionIdea ni a ComiteIdea.
+        #
+        # Antes NO existía esta rama: `rechazada` caía en la de "aprobada", no
+        # encontraba clasificación y salía por el fallback defensivo como
+        # "revision_en_curso". Una idea rechazada se mostraba "En revisión"
+        # para siempre, y ESTADOS_FLOW ni siquiera tenía un valor para esto.
+        return "revision_rechazada", revision.fecha_resolucion or revision.creado_en
+
+    if revision.estado != EstadoRevision.aprobada:
+        # No es un caso de datos inconsistentes: es un valor del enum que este
+        # código no contempla. Se rompe fuerte a propósito — los dos bugs que
+        # motivaron este cambio se colaron justamente porque una rama "todo lo
+        # demás es aprobada" los absorbió en silencio.
+        raise ValueError(
+            f"EstadoRevision no contemplado en _derivar_estado: {revision.estado!r}. "
+            "Agregá la rama explícita y su valor en ESTADOS_FLOW (y en el "
+            "EstadoFlow del frontend) antes de usar el estado nuevo."
+        )
+
     # revision.estado == aprobada a partir de acá.
     if clasificacion is None:
-        # Defensivo — se crea atómicamente al aprobar (revision/router.py:aprobar),
-        # no debería faltar nunca, pero sin fila válida no hay dónde más ubicarla.
+        # Datos inconsistentes, NO un hueco del enum: ClasificacionIdea se crea
+        # atómicamente al aprobar (revision/router.py:aprobar). Acá sí se
+        # degrada en vez de romper —una fila rara no puede tumbar el listado de
+        # todas las ideas— pero se loguea para que no pase inadvertido.
+        logger.warning(
+            "Idea %s tiene la revisión aprobada pero no existe ClasificacionIdea; "
+            "se reporta como revision_en_curso",
+            idea.id,
+        )
         return "revision_en_curso", revision.fecha_asignacion or revision.creado_en
 
     if clasificacion.estado == EstadoClasificacion.pendiente_clasificacion:
@@ -90,15 +131,39 @@ def _derivar_estado(
 
     # clasificacion.estado == clasificada a partir de acá.
     if comite is None:
-        # Defensivo, mismo motivo que arriba (clasificacion/router.py:clasificar
-        # crea ComiteIdea atómicamente).
+        # Datos inconsistentes, mismo criterio que el caso de clasificación:
+        # ComiteIdea se crea atómicamente al clasificar
+        # (clasificacion/router.py:clasificar).
+        logger.warning(
+            "Idea %s está clasificada pero no existe ComiteIdea; "
+            "se reporta como clasificacion_pendiente",
+            idea.id,
+        )
         return "clasificacion_pendiente", clasificacion.creado_en
 
     if comite.estado == EstadoComite.pendiente:
         return "comite_en_cola", comite.creado_en
 
+    if comite.estado == EstadoComite.pendiente_aceptacion_reasignacion:
+        # Se COLAPSA a "en cola", mismo criterio que en revisión.
+        #
+        # Este era el bug más grave de los dos: antes caía en la rama de
+        # "aprobada" y la idea se reportaba como comite_aprobada_sin_documentos
+        # — o sea que al autor se le mostraba su idea APROBADA por el comité
+        # cuando en realidad nadie había decidido nada, solo se estaba
+        # negociando quién la atiende.
+        return "comite_en_cola", comite.creado_en
+
     if comite.estado == EstadoComite.rechazada:
         return "comite_rechazada", comite.fecha_resolucion or comite.creado_en
+
+    if comite.estado != EstadoComite.aprobada:
+        # Mismo criterio que en revisión: hueco del enum, se rompe fuerte.
+        raise ValueError(
+            f"EstadoComite no contemplado en _derivar_estado: {comite.estado!r}. "
+            "Agregá la rama explícita y su valor en ESTADOS_FLOW (y en el "
+            "EstadoFlow del frontend) antes de usar el estado nuevo."
+        )
 
     # comite.estado == aprobada a partir de acá.
     tipos_generados = {d.tipo_documento for d in documentos}

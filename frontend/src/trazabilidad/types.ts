@@ -3,6 +3,7 @@ export type EstadoFlow =
   | 'revision_pendiente_asignacion'
   | 'revision_en_curso'
   | 'revision_cambios_solicitados'
+  | 'revision_rechazada'
   | 'clasificacion_pendiente'
   | 'comite_en_cola'
   | 'comite_rechazada'

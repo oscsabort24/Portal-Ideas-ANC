@@ -7,6 +7,7 @@ export const DESCRIPCION_ESTADO_FLOW: Record<EstadoFlow, string> = {
   revision_pendiente_asignacion: 'Se asigna un encargado de área, automático o a mano.',
   revision_en_curso: 'El revisor aprueba, pide cambios o reasigna.',
   revision_cambios_solicitados: 'El autor ajusta la idea con la retroalimentación recibida.',
+  revision_rechazada: 'El revisor de área decide no avanzar. Es final: no se reabre ni se reasigna.',
   clasificacion_pendiente: 'Se clasifica como Innovación o Transformación Digital.',
   comite_en_cola: 'Espera turno para que el comité (CAB) la revise.',
   comite_rechazada: 'El comité decide no avanzar con la idea.',
