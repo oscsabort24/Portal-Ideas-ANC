@@ -98,7 +98,7 @@ export default function Sidebar() {
           <div className="sidebar-section-title">Comité (CAB)</div>
           <NavLink to="/comites" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <FiCheckSquare className="sidebar-link-icon" />
-            Mis decisiones
+            Portafolio
           </NavLink>
         </div>
       )}
