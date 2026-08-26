@@ -174,6 +174,19 @@ def actualizar_usuario(
     return usuario
 
 
+def _validar_departamentos_existen(db: Session, departamento_ids: list[int]) -> None:
+    """Compartida por el POST de alta y el PUT de departamentos: los dos
+    escriben en miembros_cab_departamentos y tienen que rechazar ids
+    inexistentes con 400 antes de insertar, no con un IntegrityError 500."""
+    if not departamento_ids:
+        return
+    encontrados = (
+        db.query(models.Departamento.id).filter(models.Departamento.id.in_(departamento_ids)).all()
+    )
+    if len(encontrados) != len(set(departamento_ids)):
+        raise HTTPException(status_code=400, detail="Alguno de los departamentos no existe")
+
+
 @router.delete("/cab/{miembro_id}", status_code=204)
 def quitar_miembro_cab(
     miembro_id: int,
@@ -201,14 +214,7 @@ def actualizar_departamentos_miembro_cab(
     if not miembro:
         raise HTTPException(status_code=404, detail="Membresía de CAB no encontrada")
 
-    if payload.departamento_ids:
-        encontrados = (
-            db.query(models.Departamento.id)
-            .filter(models.Departamento.id.in_(payload.departamento_ids))
-            .all()
-        )
-        if len(encontrados) != len(set(payload.departamento_ids)):
-            raise HTTPException(status_code=400, detail="Alguno de los departamentos no existe")
+    _validar_departamentos_existen(db, payload.departamento_ids)
 
     db.query(models.MiembroCABDepartamento).filter_by(miembro_cab_id=miembro_id).delete()
     for depto_id in payload.departamento_ids:
@@ -389,17 +395,41 @@ def listar_miembros_cab(
     return db.query(models.MiembroCAB).all()
 
 
-@router.post("/cab/", response_model=schemas.MiembroCABOut, status_code=201)
+@router.post("/cab/", response_model=schemas.MiembroCABDetalleOut, status_code=201)
 def agregar_miembro_cab(
     payload: schemas.MiembroCABCreate,
     db: Session = Depends(get_db),
     _admin: models.Usuario = Depends(requerir_admin),
 ):
+    """Alta en UN SOLO PASO: crea la membresía y su alcance de departamentos
+    en la misma transacción.
+
+    Antes el alta solo insertaba en miembros_cab; los departamentos venían
+    después por PUT. Como "sin filas en miembros_cab_departamentos" significa
+    COMODÍN (ve todas las ideas — comites/service.py:departamentos_visibles),
+    entre el alta y esa segunda edición la persona veía las ideas de los 18
+    departamentos. Ahora el alcance queda definido desde el primer commit.
+
+    Responde MiembroCABDetalleOut (no MiembroCABOut) para que el cliente
+    reciba los departamentos ya resueltos y no tenga que adivinarlos ni
+    volver a pedir la lista.
+    """
     usuario = db.get(models.Usuario, payload.usuario_id)
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    miembro = models.MiembroCAB(**payload.model_dump())
+
+    _validar_departamentos_existen(db, payload.departamento_ids)
+
+    # Explícito en vez de model_dump(): el payload ya no mapea 1:1 con las
+    # columnas de MiembroCAB (departamento_ids va a otra tabla), y un
+    # **model_dump() reventaría con TypeError al primer campo que no sea columna.
+    miembro = models.MiembroCAB(usuario_id=payload.usuario_id, tipo_cab=payload.tipo_cab)
     db.add(miembro)
+    db.flush()  # necesitamos miembro.id antes del commit para las filas de alcance
+
+    for depto_id in dict.fromkeys(payload.departamento_ids):  # dedup, preserva orden
+        db.add(models.MiembroCABDepartamento(miembro_cab_id=miembro.id, departamento_id=depto_id))
+
     db.commit()
     db.refresh(miembro)
     return miembro
