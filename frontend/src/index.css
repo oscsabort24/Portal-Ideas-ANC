@@ -709,6 +709,17 @@ a { color: inherit; text-decoration: none; }
   color: #fff;
 }
 
+/* Elegida: el botón ya no envía, agrega su texto al campo — así que necesita
+   mostrar si está puesta o no. Se puede tocar de nuevo para sacarla. */
+.opcion-rapida-elegida {
+  background: var(--primary);
+  color: #fff;
+}
+
+.opcion-rapida-elegida::before {
+  content: '✓ ';
+}
+
 .input-wrapper {
   display: flex;
   align-items: flex-end;

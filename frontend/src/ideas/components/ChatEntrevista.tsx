@@ -11,6 +11,31 @@ function claveBorrador(ideaId: number): string {
   return `borrador-mensaje-${ideaId}`
 }
 
+// Las opciones sugeridas se acumulan en el campo de texto separadas por
+// coma, en vez de enviar el turno al primer toque. Así una pregunta que
+// admite varias respuestas ("¿qué te gustaría recibir?") se puede contestar
+// con más de una, y la persona todavía puede editar o agregar texto libre
+// antes de mandar.
+//
+// Deliberadamente NO hay un contrato de multi-select con la IA: `options`
+// sigue siendo una lista plana de strings (core/claude_client.py). Esto
+// cubre el caso sin tocar el prompt ni el Structured Output; el costo es que
+// tampoco distingue qué preguntas admiten varias, así que en una de opción
+// única nada impide elegir dos. Se asume aceptable: el texto libre siempre
+// permitió responder cualquier cosa.
+const SEPARADOR_OPCIONES = ', '
+
+function partesDe(texto: string): string[] {
+  return texto
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+}
+
+function contieneOpcion(texto: string, opcion: string): boolean {
+  return partesDe(texto).includes(opcion.trim())
+}
+
 // La API real puede tardar hasta ~12s en un turno normal (medido en el
 // diagnóstico del bug de tiempos inconsistentes) — 40s da margen de sobra
 // sin dejar al usuario esperando indefinidamente si el fetch se cuelga
@@ -148,11 +173,30 @@ export default function ChatEntrevista() {
     el.style.height = `${el.scrollHeight}px`
   }, [contenido])
 
-  // `textoDirecto` lo pasa un botón de respuesta rápida: se manda tal cual
-  // sin pasar por el textarea, para que tocar una opción sea un solo clic y
-  // no pise un borrador que la persona ya venía escribiendo.
-  async function handleEnviar(textoDirecto?: string) {
-    const texto = (textoDirecto ?? contenido).trim()
+  /** Agrega o saca una opción sugerida del campo de texto, sin enviar.
+   *
+   * Antes cada botón mandaba el turno al instante, así que solo se podía
+   * elegir una. Ahora se acumulan y la persona confirma con el botón de
+   * enviar de siempre — el mismo que ya usa para el texto libre. */
+  function alternarOpcion(opcion: string) {
+    const limpia = opcion.trim()
+    setContenido((actual) => {
+      const partes = partesDe(actual)
+      const siguiente = partes.includes(limpia)
+        ? partes.filter((p) => p !== limpia)
+        : [...partes, limpia]
+      return siguiente.join(SEPARADOR_OPCIONES)
+    })
+    // El foco vuelve al textarea para que se pueda seguir escribiendo o
+    // mandar con Enter sin tener que ir al campo con el mouse.
+    textareaRef.current?.focus()
+  }
+
+  // Ya no recibe textoDirecto: las opciones sugeridas dejaron de enviar el
+  // turno por su cuenta y ahora escriben en el mismo campo, así que este es
+  // el único camino de envío y siempre manda el contenido del textarea.
+  async function handleEnviar() {
+    const texto = contenido.trim()
     if (!texto || enviando || idea?.estado === 'enviada') {
       if (enviando) {
         // Rastro diagnosticable en consola: si esto aparece sin que el
@@ -216,13 +260,10 @@ export default function ChatEntrevista() {
           : prev,
       )
       setOpciones(respuesta.opciones)
-      // Solo se limpia el textarea si fue lo que se mandó — si la persona
-      // tocó un botón teniendo algo a medio escribir, ese borrador es suyo
-      // y no hay razón para borrárselo.
-      if (textoDirecto === undefined) {
-        setContenido('')
-        localStorage.removeItem(claveBorrador(ideaId))
-      }
+      // Se limpia siempre: lo que se mandó ES el contenido del textarea,
+      // incluidas las opciones que la persona haya ido tocando.
+      setContenido('')
+      localStorage.removeItem(claveBorrador(ideaId))
       idempotencyKeyRef.current = null
     } else if (esAbortError(ultimoError)) {
       setError('El envío tardó demasiado y se canceló, incluso después de reintentar. Por favor, intentá de nuevo.')
@@ -349,8 +390,9 @@ export default function ChatEntrevista() {
                 <button
                   key={opcion}
                   type="button"
-                  className="opcion-rapida"
-                  onClick={() => handleEnviar(opcion)}
+                  className={`opcion-rapida${contieneOpcion(contenido, opcion) ? ' opcion-rapida-elegida' : ''}`}
+                  aria-pressed={contieneOpcion(contenido, opcion)}
+                  onClick={() => alternarOpcion(opcion)}
                 >
                   {opcion}
                 </button>
