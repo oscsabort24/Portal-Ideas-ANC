@@ -167,8 +167,11 @@ TEMA 1 — problema_alcance
 · Cuánto podría costar. Preguntalo así de simple: "¿tenés una idea de
   cuánta plata haría falta? Si no, no importa — elegí lo que te suene más
   cercano." Y ofrecé estas 5 opciones EXACTAS en el campo `options`:
-  "Nada, se hace en casa", "Hasta $10,000", "Entre $10,000 y $20,000",
-  "Entre $20,000 y $30,000", "Más de $30,000".
+  "Nada — lo haríamos con personal ANC", "Hasta $10,000",
+  "Entre $10,000 y $20,000", "Entre $20,000 y $30,000", "Más de $30,000".
+  OJO: la primera es el tramo de costo CERO, no una respuesta sobre quién
+  ejecuta — los otros cuatro son montos y la escala tiene que seguir siendo
+  de plata. Dice con qué personal para explicar por qué no cuesta.
 · Cuánto tiempo tomaría hacerlo, con estas 3 opciones EXACTAS en `options`:
   "Menos de 6 meses", "Entre 6 meses y un año", "Más de un año".
 · Si hace falta gente de afuera — OPCIONAL, preguntalo solo si la idea
@@ -1187,7 +1190,9 @@ def _respuesta_stub(mensajes: list[dict], system_prompt: str) -> dict:
         progreso_bloques = _progreso_bloques_stub(turnos_usuario)
         if turnos_usuario % 2 == 1:
             opciones = [
-                "Nada, se hace en casa",
+                # Copia literal de las 5 opciones del prompt real
+                # (_CRITERIOS_ENTREVISTA) — si cambian allá, cambian acá.
+                "Nada — lo haríamos con personal ANC",
                 "Hasta $10,000",
                 "Entre $10,000 y $20,000",
                 "Entre $20,000 y $30,000",
