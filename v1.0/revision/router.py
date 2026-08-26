@@ -289,7 +289,11 @@ def pedir_cambios(
     db.add(
         MensajeEntrevista(
             idea_id=revision.idea_id,
-            rol=RolMensaje.asistente,
+            # rol=revisor, no asistente: lo escribió una persona, no la IA.
+            # usuario_id queda para poder mostrar "Armando pidió cambios:" en
+            # el chat aunque después la revisión se reasigne a otra persona.
+            rol=RolMensaje.revisor,
+            usuario_id=usuario_actual.id,
             contenido=texto,
             orden=orden,
         )

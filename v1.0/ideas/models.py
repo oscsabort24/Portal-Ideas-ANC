@@ -18,6 +18,21 @@ class RolMensaje(str, enum.Enum):
     usuario = "usuario"
     asistente = "asistente"
 
+    # Comentario de un revisor de área al pedir cambios. Antes se guardaba
+    # como `asistente`, con dos consecuencias malas: el autor lo veía como si
+    # lo hubiera dicho la IA (BurbujaMensaje solo distinguía usuario/no-usuario)
+    # y volvía al modelo en el turno siguiente como texto propio del asistente
+    # — misma contaminación que ya habíamos tapado con `degradado`, por otra
+    # puerta.
+    #
+    # Estos mensajes se EXCLUYEN del historial que se le manda al modelo (ver
+    # ideas/service.py:historial_para_ia). Ojo con el mapeo de
+    # core/claude_client.py:407: traduce "asistente"->assistant y CUALQUIER
+    # otra cosa->user, así que si un mensaje de revisor llegara a colarse se
+    # le presentaría al modelo como si lo hubiera escrito el autor, que es
+    # peor todavía. La exclusión no es cosmética.
+    revisor = "revisor"
+
 
 class OrigenPregunta(str, enum.Enum):
     revision = "revision"
@@ -100,6 +115,20 @@ class MensajeEntrevista(Base):
     rol: Mapped[RolMensaje] = mapped_column(Enum(RolMensaje, name="rol_mensaje"), nullable=False)
     contenido: Mapped[str] = mapped_column(Unicode(), nullable=False)
     orden: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Quién escribió el mensaje, cuando NO es el autor de la idea ni la IA.
+    # Hoy solo lo llenan los mensajes de rol=revisor, para poder mostrar
+    # "Armando pidió cambios:" en el chat.
+    #
+    # Se guarda en vez de resolverlo al renderizar desde
+    # RevisionIdea.revisor_id porque el revisor puede cambiar por reasignación:
+    # un comentario histórico tiene que seguir atribuido a quien lo escribió,
+    # no a quien tenga la revisión hoy.
+    #
+    # Nullable: los mensajes de usuario y de asistente no lo usan, y los
+    # históricos anteriores a esta columna no lo tienen.
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    usuario: Mapped["Usuario | None"] = relationship()
 
     # True cuando el turno del asistente NO es contenido real de la IA sino
     # texto que generó el backend porque la llamada falló (error de API, JSON

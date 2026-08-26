@@ -22,6 +22,14 @@ class MensajeEntrevistaCreate(BaseModel):
     motivo_sugerencia_revisor_autor: str | None = None
 
 
+class UsuarioMensajeOut(BaseModel):
+    """Lo mínimo para atribuir un mensaje: id y nombre, nunca correo ni rol."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre: str
+
+
 class MensajeEntrevistaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,6 +38,12 @@ class MensajeEntrevistaOut(BaseModel):
     contenido: str
     orden: int
     creado_en: datetime
+
+    # Quién lo escribió, cuando no es el autor de la idea ni la IA — hoy solo
+    # los de rol=revisor. Se resuelve acá (id + nombre, nada más) en vez de
+    # mandar el usuario_id crudo, para que el chat pueda escribir "Armando
+    # pidió cambios:" sin una llamada extra y sin exponer correo ni rol.
+    usuario: UsuarioMensajeOut | None = None
 
 
 class ProgresoBloquesOut(BaseModel):

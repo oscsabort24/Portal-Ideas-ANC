@@ -1,7 +1,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ideas.models import Idea, MensajeEntrevista
+from ideas.models import Idea, MensajeEntrevista, RolMensaje
 
 
 def siguiente_orden(db: Session, idea_id: int) -> int:
@@ -46,6 +46,18 @@ def historial_para_ia(db: Session, idea_id: int) -> list[dict]:
             # "degradado = 0", que es lo correcto — y la columna es NOT NULL,
             # así que no hay un tercer estado que se pueda escapar.
             MensajeEntrevista.degradado == False,  # noqa: E712
+            # Los comentarios del revisor de área NO son parte de la
+            # conversación con el modelo: se guardan como mensaje para que el
+            # autor los vea en el chat, pero se los escribió una tercera
+            # persona. Antes iban con rol='asistente' y volvían al modelo como
+            # texto propio, así que la IA continuaba creyendo que ella los
+            # había dicho.
+            #
+            # Excluirlos, y no traducirlos a otro rol, es deliberado:
+            # core/claude_client.py:407 mapea "asistente"->assistant y todo lo
+            # demás->user, así que dejarlos pasar se los presentaría al modelo
+            # como si los hubiera escrito el AUTOR — peor que el bug original.
+            MensajeEntrevista.rol != RolMensaje.revisor,
         )
         .order_by(MensajeEntrevista.orden)
         .all()
