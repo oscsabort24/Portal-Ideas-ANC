@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import { enviarIdea, enviarMensaje, obtenerIdea } from '../api'
 import type { IdeaDetalle, MensajeEntrevista, ProgresoBloques } from '../types'
@@ -58,6 +58,7 @@ function bloqueEnCurso(progreso: ProgresoBloques | null): keyof ProgresoBloques 
 
 export default function ChatEntrevista() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const ideaId = Number(id)
 
   const [idea, setIdea] = useState<IdeaDetalle | null>(null)
@@ -66,6 +67,11 @@ export default function ChatEntrevista() {
   const [enviando, setEnviando] = useState(false)
   const [reintentando, setReintentando] = useState(false)
   const [enviandoIdea, setEnviandoIdea] = useState(false)
+  // Confirmación de envío. Antes el único acuse era el banner "✓ Idea
+  // enviada" dentro del scroll del chat: con una conversación larga la
+  // persona podía no verlo nunca, y no ofrecía salida — quedaba en la misma
+  // pantalla ya deshabilitada, sin ruta a "Mis ideas".
+  const [mostrarConfirmacion, setMostrarConfirmacion] = useState(false)
   // Respuestas sugeridas del último turno. Efímeras a propósito (no vienen
   // en obtenerIdea, ver ideas/schemas.py) — tras recargar la página quedan
   // solo el texto de la pregunta y el campo libre, que es suficiente.
@@ -241,6 +247,7 @@ export default function ChatEntrevista() {
     try {
       const ideaActualizada = await enviarIdea(ideaId)
       setIdea((prev) => (prev ? { ...prev, ...ideaActualizada } : prev))
+      setMostrarConfirmacion(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo enviar la idea')
     } finally {
@@ -297,6 +304,31 @@ export default function ChatEntrevista() {
 
         {entrevistaTerminada && (
           <div className="banner-enviada">✓ Idea enviada — la entrevista quedó registrada.</div>
+        )}
+
+        {/* El banner de arriba queda como registro permanente para quien
+            vuelva a abrir la idea; este modal es el acuse del momento del
+            envío. No se cierra al tocar afuera a propósito: es el unico punto
+            del flujo donde se le dice a la persona que hay un historial donde
+            seguir el avance. */}
+        {mostrarConfirmacion && (
+          <div className="confirmacion-overlay" role="dialog" aria-modal="true" aria-labelledby="tituloConfirmacion">
+            <div className="confirmacion-modal">
+              <div className="confirmacion-icono">✓</div>
+              <h2 className="confirmacion-titulo" id="tituloConfirmacion">Idea enviada</h2>
+              <p className="confirmacion-texto">
+                Podés consultar el progreso en tu historial.
+              </p>
+              <div className="confirmacion-acciones">
+                <button className="btn-primary" onClick={() => navigate('/ideas')}>
+                  Ir a Mis ideas
+                </button>
+                <button className="btn-small" onClick={() => setMostrarConfirmacion(false)}>
+                  Seguir acá
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {!entrevistaTerminada && bloquesCompletos && (

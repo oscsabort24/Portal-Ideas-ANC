@@ -1934,6 +1934,44 @@ select.form-input { background: var(--surface); cursor: pointer; }
 /* ─────────────────────────────────────────────
    FLOW CONTROL — DRILL-DOWN
 ───────────────────────────────────────────── */
+/* Confirmación de envío de idea (ChatEntrevista). Mismo lenguaje visual que
+   .flow-drill-overlay, pero centrado y angosto: es un acuse, no un panel de
+   contenido. */
+.confirmacion-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 20, 30, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 24px;
+}
+
+.confirmacion-modal {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  width: min(400px, 100%);
+  padding: 32px 28px 24px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.confirmacion-icono {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--success-bg, #E8F5ED);
+  color: var(--success, #00713D);
+  font-size: 26px;
+  line-height: 52px;
+}
+
+.confirmacion-titulo { font-size: 19px; font-weight: 600; color: var(--text); margin: 0 0 6px; }
+.confirmacion-texto { font-size: 14px; color: var(--text-light); margin: 0 0 22px; }
+.confirmacion-acciones { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+
 .flow-drill-overlay {
   position: fixed;
   inset: 0;
