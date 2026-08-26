@@ -258,6 +258,7 @@ _RESPUESTA_DEGRADADA_API = {
     "options": None,
     "progreso_bloques": None,
     "raw": None,
+    "degradado": True,
 }
 
 _RESPUESTA_DEGRADADA_SIN_PARSEAR = {
@@ -266,6 +267,7 @@ _RESPUESTA_DEGRADADA_SIN_PARSEAR = {
     "options": None,
     "progreso_bloques": None,
     "raw": None,
+    "degradado": True,
 }
 
 # Cuando la IA devuelve un JSON que no valida contra RespuestaEntrevista
@@ -278,6 +280,7 @@ _RESPUESTA_REPREGUNTA = {
     "options": None,
     "progreso_bloques": None,
     "raw": None,
+    "degradado": True,
 }
 
 
@@ -391,9 +394,13 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str, departamento_id:
     # una repregunta neutra que mantiene la conversación viva; el progreso
     # de bloques del turno SÍ se conserva, que es dato válido.
     mensaje = parsed.message.strip()
+    degradado = False
     if not mensaje:
         logger.warning("generar_respuesta: la IA devolvió un mensaje vacío; se usó el texto de respaldo")
         mensaje = "Perdón, se me fue la idea. ¿Me lo repetís?"
+        # Este turno tampoco es contenido real de la IA: se marca degradado
+        # para que no vuelva como contexto (ver ideas/service.py:historial_para_ia).
+        degradado = True
 
     return {
         "message": mensaje,
@@ -401,6 +408,7 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str, departamento_id:
         "options": parsed.options,
         "progreso_bloques": parsed.progreso_bloques.model_dump(),
         "raw": None,
+        "degradado": degradado,
     }
 
 
@@ -1192,6 +1200,8 @@ def _respuesta_stub(mensajes: list[dict], system_prompt: str) -> dict:
         "options": opciones,
         "progreso_bloques": progreso_bloques,
         "raw": None,
+        # El stub simula una respuesta exitosa, no un fallo: no es degradado.
+        "degradado": False,
     }
 
 

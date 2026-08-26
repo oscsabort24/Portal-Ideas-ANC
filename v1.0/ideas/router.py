@@ -257,6 +257,10 @@ def enviar_mensaje(
         rol=RolMensaje.asistente,
         contenido=respuesta["message"],
         orden=orden_usuario + 1,
+        # generar_respuesta marca en el origen si este turno es texto de
+        # respaldo del backend en vez de contenido real de la IA. Se guarda
+        # para poder excluirlo del contexto en turnos siguientes.
+        degradado=respuesta["degradado"],
     )
     db.add(mensaje_asistente)
 

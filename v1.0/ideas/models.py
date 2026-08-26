@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, Unicode, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, Unicode, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -100,6 +100,20 @@ class MensajeEntrevista(Base):
     rol: Mapped[RolMensaje] = mapped_column(Enum(RolMensaje, name="rol_mensaje"), nullable=False)
     contenido: Mapped[str] = mapped_column(Unicode(), nullable=False)
     orden: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # True cuando el turno del asistente NO es contenido real de la IA sino
+    # texto que generó el backend porque la llamada falló (error de API, JSON
+    # inválido, mensaje vacío — ver core/claude_client.py:generar_respuesta).
+    # Se marca en el origen, no comparando strings después: así cambiar la
+    # redacción de un mensaje de error no rompe el filtrado de los mensajes
+    # ya guardados.
+    #
+    # Los mensajes marcados se excluyen del historial que se le manda al
+    # modelo (ideas/service.py:historial_para_ia); sin eso, un fallo técnico
+    # se reinyectaba como si fuera un turno propio del asistente y terminaba
+    # contaminando el resumen para revisores y los documentos del CAB.
+    # Siguen visibles en la UI: GET /ideas/{id} no los filtra.
+    degradado: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", default=False)
 
     # Clave de idempotencia del intento de envío que creó este mensaje (ver
     # ideas/router.py:enviar_mensaje). Solo se llena en los mensajes de
