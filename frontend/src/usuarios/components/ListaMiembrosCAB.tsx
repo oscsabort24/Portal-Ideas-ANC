@@ -9,16 +9,8 @@ import {
   quitarMiembroCab,
 } from '../api'
 import { ETIQUETA_ROL } from '../types'
-import type { Departamento, MiembroCABDetalle, TipoCAB, Usuario } from '../types'
+import type { Departamento, MiembroCABDetalle, Usuario } from '../types'
 import FormularioMiembroCAB from './FormularioMiembroCAB'
-
-// tipo_cab quedó como metadata histórica: comites/service.py:departamentos_visibles
-// no lo consulta nunca. Se sigue mostrando porque es un dato real de cada
-// membresía, pero ya no agrupa ni ordena la pantalla.
-const CLASIFICACION_HISTORICA: Record<TipoCAB, string> = {
-  innovacion: 'Innovación',
-  transformacion_digital: 'Transformación Digital',
-}
 
 /** Las tres razones por las que un Portfolio Owner ve lo que ve. */
 type Alcance =
@@ -269,11 +261,15 @@ export default function ListaMiembrosCAB() {
                 />
               )}
 
+              {/* Ya no se muestra "Clasificación histórica" (tipo_cab). Desde que
+                  el alta dejó de preguntarlo, el backend le pone un valor de
+                  compatibilidad fijo (usuarios/schemas.py:MiembroCABCreate), así
+                  que mostrarlo presentaba como dato de la persona algo que nadie
+                  eligió — y para toda alta nueva habría dicho "Innovación" por
+                  igual. El campo sigue existiendo en la BD por la restricción
+                  NOT NULL, pero no significa nada para quien lee esta ficha. */}
               <div className="po-pie">
-                <span className="po-metadata">
-                  Rol: {ETIQUETA_ROL[m.usuario.rol]} · Clasificación histórica:{' '}
-                  {CLASIFICACION_HISTORICA[m.tipo_cab]}
-                </span>
+                <span className="po-metadata">Rol: {ETIQUETA_ROL[m.usuario.rol]}</span>
               </div>
             </div>
           )
