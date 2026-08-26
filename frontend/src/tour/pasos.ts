@@ -38,7 +38,7 @@ export const PASOS_TOUR: PasoTour[] = [
   {
     titulo: '5. Comité (CAB)',
     texto:
-      'Las ideas clasificadas pasan a la cola del comité correspondiente (CAB de innovación o de transformación digital), donde sus miembros deciden si avanzan, se rechazan o se les pide más información.',
+      'Las ideas clasificadas pasan a la cola del comité, donde las atiende el Portfolio Owner que tiene asignado el departamento de quien propuso la idea. Ahí se decide si avanzan, se rechazan o se les pide más información.',
     roles: ['admin', 'gerente', 'encargado_area'],
   },
   {
