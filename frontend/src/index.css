@@ -2175,3 +2175,29 @@ select.form-input { background: var(--surface); cursor: pointer; }
   .stepper-etiqueta { font-size: 10px; }
   .stepper { padding: 14px 10px 12px; }
 }
+
+/* Mini-barra de progreso en cada fila de "Mis ideas". Misma paleta y mismo
+   mapeo que el stepper del detalle (PROGRESO_POR_ESTADO), en 5 segmentos. */
+.idea-card-progreso { display: flex; align-items: center; gap: 10px; }
+
+.mini-progreso { display: flex; gap: 3px; align-items: center; }
+
+.mini-progreso-seg {
+  width: 14px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.mini-progreso-completado  { background: var(--success); }
+.mini-progreso-avance      { background: var(--primary); }
+.mini-progreso-accion      { background: var(--partial); }
+.mini-progreso-rechazo     { background: var(--error); }
+.mini-progreso-pendiente   { background: var(--border); }
+.mini-progreso-sin_iniciar { background: var(--border); }
+/* No va a ocurrir: se distingue de "pendiente" bajándole el cuerpo. */
+.mini-progreso-cancelado   { background: var(--border); opacity: 0.45; height: 2px; }
+
+@media (max-width: 640px) {
+  .mini-progreso { display: none; }
+}

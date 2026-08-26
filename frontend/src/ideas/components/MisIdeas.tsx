@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { FiFileText, FiCheckCircle } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import { ETIQUETA_ESTADO_FLOW } from '../../trazabilidad/estadosFlow'
+import MiniProgreso from './MiniProgreso'
 import { listarIdeas } from '../api'
 import type { Idea } from '../types'
 
@@ -54,9 +55,12 @@ export default function MisIdeas() {
                 borrador/enviada, asi que decia "enviada" desde el envio hasta
                 la aprobacion del comite — informacion muerta para el autor.
                 El fallback cubre el caso de que el backend no lo mande. */}
-            <span className={`idea-estado-badge ${idea.estado_flow ?? idea.estado}`}>
-              {idea.estado_flow ? ETIQUETA_ESTADO_FLOW[idea.estado_flow] : idea.estado}
-            </span>
+            <div className="idea-card-progreso">
+              <MiniProgreso estadoFlow={idea.estado_flow} />
+              <span className={`idea-estado-badge ${idea.estado_flow ?? idea.estado}`}>
+                {idea.estado_flow ? ETIQUETA_ESTADO_FLOW[idea.estado_flow] : idea.estado}
+              </span>
+            </div>
           </div>
         </div>
       ))}
