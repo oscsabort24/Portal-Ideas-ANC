@@ -2078,3 +2078,100 @@ select.form-input { background: var(--surface); cursor: pointer; }
   color: var(--text);
   margin-top: 6px;
 }
+
+/* ─────────────────────────────────────────────
+   STEPPER DE PROGRESO (detalle de la idea)
+───────────────────────────────────────────── */
+.stepper {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 18px 20px 14px;
+  margin-bottom: 16px;
+}
+
+.stepper-pasos {
+  display: flex;
+  align-items: flex-start;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stepper-paso {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  text-align: center;
+}
+
+/* La línea conectora se dibuja hacia la IZQUIERDA de cada círculo, así toma
+   el color del paso al que llega: verde si ya se completó, gris si falta. */
+.stepper-paso::before {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: 50%;
+  left: -50%;
+  height: 2px;
+  background: var(--border);
+}
+.stepper-paso:first-child::before { display: none; }
+
+.stepper-circulo {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  color: var(--text-light);
+}
+
+.stepper-etiqueta { font-size: 11.5px; color: var(--text-light); line-height: 1.25; }
+
+/* Completado */
+.stepper-paso-completado .stepper-circulo { background: var(--success); border-color: var(--success); color: #fff; }
+.stepper-paso-completado::before { background: var(--success); }
+.stepper-paso-completado .stepper-etiqueta { color: var(--text); }
+
+/* Actual — en curso */
+.stepper-paso-actual .stepper-circulo { border-color: var(--primary); color: var(--primary); box-shadow: 0 0 0 3px var(--info-bg, #E8F4FD); }
+.stepper-paso-actual::before { background: var(--success); }
+.stepper-paso-actual .stepper-etiqueta { color: var(--primary); font-weight: 600; }
+
+/* Actual — requiere acción del autor */
+.stepper-paso-accion .stepper-circulo { background: var(--partial); border-color: var(--partial); color: #fff; }
+.stepper-paso-accion::before { background: var(--success); }
+.stepper-paso-accion .stepper-etiqueta { color: var(--partial); font-weight: 600; }
+
+/* Actual — rechazada acá */
+.stepper-paso-rechazo .stepper-circulo { background: var(--error); border-color: var(--error); color: #fff; }
+.stepper-paso-rechazo::before { background: var(--success); }
+.stepper-paso-rechazo .stepper-etiqueta { color: var(--error); font-weight: 600; }
+
+/* Pasos que ya no van a ocurrir: tenues y con línea punteada, NO "pendientes"
+   — gris normal comunicaría que todavía van a pasar. */
+.stepper-paso-cancelado { opacity: 0.4; }
+.stepper-paso-cancelado .stepper-circulo { border-style: dashed; }
+.stepper-paso-cancelado::before { background: none; border-top: 2px dashed var(--border); height: 0; }
+
+.stepper-detalle { margin: 14px 0 0; font-size: 13px; color: var(--text-light); text-align: center; }
+.stepper-detalle-accion strong { color: var(--partial); }
+.stepper-detalle-rechazo strong { color: var(--error); }
+.stepper-detalle-completo strong { color: var(--success); }
+.stepper-detalle-avance strong { color: var(--primary); }
+
+@media (max-width: 640px) {
+  .stepper-etiqueta { font-size: 10px; }
+  .stepper { padding: 14px 10px 12px; }
+}

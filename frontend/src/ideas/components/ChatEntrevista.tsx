@@ -6,6 +6,7 @@ import type { IdeaDetalle, MensajeEntrevista, ProgresoBloques } from '../types'
 import BurbujaMensaje from './BurbujaMensaje'
 import ChecklistEntrevista from './ChecklistEntrevista'
 import LineaTiempo from './LineaTiempo'
+import StepperProgreso from './StepperProgreso'
 
 function claveBorrador(ideaId: number): string {
   return `borrador-mensaje-${ideaId}`
@@ -312,6 +313,11 @@ export default function ChatEntrevista() {
 
   return (
     <>
+    {/* Arriba de todo: en cuanto la idea sale de borrador, lo primero que
+        quiere saber el autor es dónde está y si le toca algo a él. Antes eso
+        solo se veía bajando hasta la línea de tiempo, al final de la página. */}
+    <StepperProgreso estadoFlow={idea.estado_flow} />
+
     <div className="chat-entrevista-layout">
       <div className="chat-shell">
         <div className="chat-titulo">{idea.titulo}</div>
