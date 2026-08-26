@@ -142,7 +142,7 @@ export default function ColaComite() {
     return (
       <div>
         <h1 className="page-title">Cola del comité</h1>
-        <p className="cab-vacio">No eres miembro de ningún CAB.</p>
+        <p className="cab-vacio">No sos Portfolio Owner de ningún departamento.</p>
       </div>
     )
   }

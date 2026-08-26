@@ -31,7 +31,7 @@ export function useEsMiembroCab() {
       })
       .catch((err) => {
         if (cancelado) return
-        setError(err instanceof Error ? err.message : 'No se pudieron cargar tus membresías de CAB')
+        setError(err instanceof Error ? err.message : 'No se pudo cargar tu alcance como Portfolio Owner')
       })
       .finally(() => {
         if (!cancelado) setCargando(false)

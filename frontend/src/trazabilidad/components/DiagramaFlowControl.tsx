@@ -29,7 +29,7 @@ const NOMBRE_CARRIL: Record<Columna, string> = {
   1: 'Colaborador',
   2: 'IA / Sistema',
   3: 'Revisor de área',
-  4: 'Comité (CAB)',
+  4: 'Portfolio Owner',
 }
 
 /** Registro de refs por id de nodo — evita declarar 25 useRef sueltos. */
@@ -565,7 +565,7 @@ export default function DiagramaFlowControl() {
               id="comiteEntraCola"
               refPara={refPara}
               etiqueta="Idea entra a la cola del comité"
-              descripcion="Visible para miembros de CAB con acceso al departamento del autor (tipo_cab quedó como metadata, ya no determina el acceso). Documentos quedan congelados desde acá."
+              descripcion="Visible para los Portfolio Owners que tienen asignado el departamento del autor (tipo_cab quedó como metadata, ya no determina el acceso). Documentos quedan congelados desde acá."
             />
           </Celda>
         </Fila>
@@ -605,7 +605,7 @@ export default function DiagramaFlowControl() {
 
         <Fila>
           <Celda columna={4}>
-            <NodoRombo id="rombolComiteDecide" refPara={refPara} etiqueta="Comité decide" descripcion="Aprobar, rechazar, o reasignar a otro miembro del CAB." />
+            <NodoRombo id="rombolComiteDecide" refPara={refPara} etiqueta="Comité decide" descripcion="Aprobar, rechazar, o reasignar a otro Portfolio Owner." />
           </Celda>
         </Fila>
 
@@ -617,7 +617,7 @@ export default function DiagramaFlowControl() {
             <NodoRect
               id="comiteProponeReasignacion"
               refPara={refPara}
-              etiqueta="Propone que otro miembro del CAB atienda la idea"
+              etiqueta="Propone que otro Portfolio Owner atienda la idea"
               descripcion="Queda pendiente_aceptacion_reasignacion — el estado no se mueve hasta que el destino responda."
             />
           </Celda>

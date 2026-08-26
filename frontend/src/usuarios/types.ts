@@ -14,7 +14,7 @@ export const DESCRIPCION_ROL: Record<RolUsuario, string> = {
   colaborador: 'Crea y ve solo sus propias ideas, y puede generar/regenerar los documentos de esas ideas mientras no exista un comité (CAB) para ellas.',
   encargado_area: 'Todo lo de Colaborador. Además, revisa las ideas asignadas de su departamento: puede aprobarlas, pedir cambios o reasignarlas.',
   gerente: 'Todo lo de Encargado de área. Además, ve todas las ideas del sistema (no solo las propias).',
-  admin: 'Acceso total: gestiona usuarios, departamentos, puestos, miembros del CAB y notificaciones; es el único rol que puede subir/actualizar los criterios de IA; y no tiene las restricciones de generación de documentos que sí aplican a los demás roles.',
+  admin: 'Acceso total: gestiona usuarios, departamentos, puestos, Portfolio Owners y notificaciones; es el único rol que puede subir/actualizar los criterios de IA; y no tiene las restricciones de generación de documentos que sí aplican a los demás roles.',
 }
 
 /** Orden fijo en que se muestran los roles en listados y en la página de

@@ -146,7 +146,7 @@ export default function Sidebar() {
                 </NavLink>
                 <NavLink to="/comite-cab" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
                   <FiAward className="sidebar-link-icon" />
-                  Miembros del CAB
+                  Portfolio Owners
                 </NavLink>
                 <NavLink to="/criterios" className={({ isActive }) => `sidebar-link sidebar-sublink ${isActive ? 'active' : ''}`}>
                   <FiShield className="sidebar-link-icon" />

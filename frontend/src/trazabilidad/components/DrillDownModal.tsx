@@ -51,7 +51,7 @@ export default function DrillDownModal({
                   <span>Autor: {idea.autor.nombre}</span>
                   {idea.revisor && <span>Revisor: {idea.revisor.nombre}</span>}
                   {idea.miembros_comite && idea.miembros_comite.length > 0 && (
-                    <span>Comité: {idea.miembros_comite.map((m) => m.nombre).join(', ')}</span>
+                    <span>Portfolio Owner: {idea.miembros_comite.map((m) => m.nombre).join(', ')}</span>
                   )}
                 </div>
               </div>

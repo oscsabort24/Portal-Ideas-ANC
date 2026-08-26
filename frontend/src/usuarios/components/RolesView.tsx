@@ -40,8 +40,8 @@ function ReferenciaRoles() {
       </div>
 
       <p className="form-help" style={{ marginTop: 16 }}>
-        Aparte de estos 4 roles, ser miembro de un Comité (CAB) da acceso a ver los documentos de
-        las ideas asignadas a ese comité, sin importar el rol de la persona.
+        Aparte de estos 4 roles, ser Portfolio Owner da acceso a ver los documentos de las ideas
+        de los departamentos que tenga asignados, sin importar el rol de la persona.
       </p>
     </div>
   )

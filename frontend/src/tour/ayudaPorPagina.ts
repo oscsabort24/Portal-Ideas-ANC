@@ -34,8 +34,8 @@ const AYUDA_POR_RUTA: Record<string, PasoTour> = {
     texto: 'Catálogo de puestos por departamento, usado al asignar el puesto de cada persona en Usuarios.',
   },
   '/comite-cab': {
-    titulo: 'Miembros del CAB',
-    texto: 'Quiénes integran cada comité (CAB de Innovación y de Transformación Digital) — define quién ve la cola de comité y puede aprobar o rechazar ideas ahí.',
+    titulo: 'Portfolio Owners',
+    texto: 'Quiénes deciden en el comité y sobre qué departamentos. A cada Portfolio Owner se le asignan departamentos: eso define qué ideas ve en la cola del comité y sobre cuáles puede aprobar o rechazar. Sin departamentos asignados, ve todas.',
   },
   '/criterios': {
     titulo: 'Criterios IA',
