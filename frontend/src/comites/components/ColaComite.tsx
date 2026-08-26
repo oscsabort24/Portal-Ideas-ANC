@@ -141,7 +141,7 @@ export default function ColaComite() {
   if (!esAdmin && !esMiembro) {
     return (
       <div>
-        <h1 className="page-title">Cola del comité</h1>
+        <h1 className="page-title">Mis decisiones</h1>
         <p className="cab-vacio">No sos Portfolio Owner de ningún departamento.</p>
       </div>
     )
@@ -161,7 +161,7 @@ export default function ColaComite() {
 
   return (
     <div>
-      <h1 className="page-title">Cola del comité</h1>
+      <h1 className="page-title">Mis decisiones</h1>
 
       {!esAdmin && (
         <p className="form-help">
