@@ -23,19 +23,10 @@ from clasificacion.models import ClasificacionIdea, EstadoClasificacion
 from comites.service import crear_comite_idea_para_idea
 from core.claude_client import clasificar_idea
 from criterios.models import CriterioIA, TipoCriterio
-from ideas.models import Idea, MensajeEntrevista
+from ideas.models import Idea
+from ideas.service import historial_para_ia
 
 logger = logging.getLogger(__name__)
-
-
-def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
-    mensajes = (
-        db.query(MensajeEntrevista)
-        .filter(MensajeEntrevista.idea_id == idea_id)
-        .order_by(MensajeEntrevista.orden)
-        .all()
-    )
-    return [{"role": m.rol.value, "content": m.contenido} for m in mensajes]
 
 
 def _clasificar_con_ia(db: Session, idea: Idea) -> dict | None:
@@ -48,7 +39,7 @@ def _clasificar_con_ia(db: Session, idea: Idea) -> dict | None:
         return None
 
     try:
-        historial = _historial_para_ia(db, idea.id)
+        historial = historial_para_ia(db, idea.id)
         return clasificar_idea(historial, criterio.contenido)
     except Exception:
         # Cualquier fallo (docx corrupto, ruta inválida, etc. — no solo

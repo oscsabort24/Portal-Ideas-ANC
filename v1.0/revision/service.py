@@ -28,7 +28,8 @@ from core.claude_client import _CRITERIOS_ASIGNACION_REVISOR_DEFAULT, asignar_re
 from core.reasignacion import aplicar_rechazo_reasignacion as _aplicar_rechazo_generico
 from core.reasignacion import expirar_reasignaciones_vencidas as _expirar_generico
 from criterios.models import CriterioIA, TipoCriterio
-from ideas.models import Idea, MensajeEntrevista, TipoEventoIdea
+from ideas.models import Idea, TipoEventoIdea
+from ideas.service import historial_para_ia
 from permisos.models import ClavePermiso
 from permisos.service import rol_tiene_permiso
 from revision.models import EstadoRevision, OrigenAsignacion, RevisionIdea
@@ -43,16 +44,6 @@ def _roles_habilitados_revisor(db: Session) -> list[RolUsuario]:
     (asignar/reasignar manual). admin siempre incluido vía bypass de
     rol_tiene_permiso."""
     return [rol for rol in RolUsuario if rol_tiene_permiso(db, rol, ClavePermiso.es_revisor_elegible)]
-
-
-def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
-    mensajes = (
-        db.query(MensajeEntrevista)
-        .filter(MensajeEntrevista.idea_id == idea_id)
-        .order_by(MensajeEntrevista.orden)
-        .all()
-    )
-    return [{"role": m.rol.value, "content": m.contenido} for m in mensajes]
 
 
 def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | None:
@@ -95,7 +86,7 @@ def _asignar_por_ia(db: Session, idea: Idea, departamentos: list[Departamento]) 
     if not departamentos:
         return None
     try:
-        historial = _historial_para_ia(db, idea.id)
+        historial = historial_para_ia(db, idea.id)
         return asignar_revisor_ia(
             historial=historial,
             titulo=idea.titulo,

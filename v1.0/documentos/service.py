@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from documentos.archivos import ruta_para
 from documentos.generadores import GENERADORES
 from documentos.models import DocumentoGenerado
-from ideas.models import Idea, MensajeEntrevista
+from ideas.models import Idea
+from ideas.service import historial_para_ia
 from core.claude_client import generar_contenido_documentos
 
 
@@ -31,16 +32,6 @@ def _contexto_estructural(idea: Idea) -> dict:
         "programa": "Transformación Digital",
         "procedimiento_sig": "No existe",
     }
-
-
-def _historial_para_ia(db: Session, idea_id: int) -> list[dict]:
-    mensajes = (
-        db.query(MensajeEntrevista)
-        .filter(MensajeEntrevista.idea_id == idea_id)
-        .order_by(MensajeEntrevista.orden)
-        .all()
-    )
-    return [{"role": m.rol.value, "content": m.contenido} for m in mensajes]
 
 
 def generar_documentos_para_tipos(
@@ -64,7 +55,7 @@ def generar_documentos_para_tipos(
         return []
 
     contexto_estructural = _contexto_estructural(idea)
-    historial = _historial_para_ia(db, idea.id)
+    historial = historial_para_ia(db, idea.id)
     contenido_por_tipo = generar_contenido_documentos(historial, tipos)
 
     documentos = []
