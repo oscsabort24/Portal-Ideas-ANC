@@ -6,10 +6,12 @@ import { SelectorDepartamentos } from './ListaMiembrosCAB'
 export default function FormularioMiembroCAB({
   personas,
   departamentos,
+  duenoPorDepartamento,
   onAgregado,
 }: {
   personas: Usuario[]
   departamentos: Departamento[]
+  duenoPorDepartamento: Map<number, string>
   onAgregado: (miembro: MiembroCABDetalle) => void
 }) {
   const [usuarioId, setUsuarioId] = useState('')
@@ -70,7 +72,12 @@ export default function FormularioMiembroCAB({
             ? 'Sin ningún departamento seleccionado, esta persona verá las ideas de TODOS los departamentos.'
             : `Verá solo las ideas de ${seleccion.length} departamento${seleccion.length === 1 ? '' : 's'}.`}
         </p>
-        <SelectorDepartamentos departamentos={departamentos} seleccion={seleccion} onAlternar={alternar} />
+        <SelectorDepartamentos
+          departamentos={departamentos}
+          seleccion={seleccion}
+          onAlternar={alternar}
+          duenoPorDepartamento={duenoPorDepartamento}
+        />
       </div>
 
       {error && <p className="form-error">{error}</p>}

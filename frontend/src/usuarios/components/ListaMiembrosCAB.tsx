@@ -75,31 +75,69 @@ export function SelectorDepartamentos({
   departamentos,
   seleccion,
   onAlternar,
+  duenoPorDepartamento,
 }: {
   departamentos: Departamento[]
   seleccion: number[]
   onAlternar: (id: number) => void
+  /** departamento_id -> nombre del Portfolio Owner que YA lo tiene. Excluye
+   *  a la persona que se está editando (sus propios departamentos no son
+   *  conflicto consigo misma). */
+  duenoPorDepartamento: Map<number, string>
 }) {
   return (
     <div className="po-checkboxes">
-      {departamentos.map((d) => (
-        <label key={d.id} className="po-checkbox">
-          <input type="checkbox" checked={seleccion.includes(d.id)} onChange={() => onAlternar(d.id)} />
-          {d.nombre}
-        </label>
-      ))}
+      {departamentos.map((d) => {
+        // Un departamento pertenece a un solo Portfolio Owner. Se deshabilita
+        // en vez de dejar que el guardado falle con 409: el error del backend
+        // sigue existiendo como red (y para carreras entre dos admins), pero
+        // no debería ser la primera vez que alguien se entera de la regla.
+        const dueno = duenoPorDepartamento.get(d.id)
+        return (
+          <label
+            key={d.id}
+            className={`po-checkbox${dueno ? ' po-checkbox-ocupado' : ''}`}
+            title={dueno ? `Ya asignado a ${dueno}` : undefined}
+          >
+            <input
+              type="checkbox"
+              checked={seleccion.includes(d.id)}
+              disabled={dueno !== undefined}
+              onChange={() => onAlternar(d.id)}
+            />
+            {d.nombre}
+            {dueno && <span className="po-checkbox-dueno"> — {dueno}</span>}
+          </label>
+        )
+      })}
     </div>
   )
+}
+
+/** departamento_id -> nombre del dueño, a partir de las fichas ya cargadas.
+ *  `exceptoMiembroId` saca de la cuenta a la membresía que se está editando. */
+export function mapaDuenosDepartamento(
+  miembros: MiembroCABDetalle[],
+  exceptoMiembroId?: number,
+): Map<number, string> {
+  const mapa = new Map<number, string>()
+  for (const m of miembros) {
+    if (m.id === exceptoMiembroId) continue
+    for (const d of m.departamentos) mapa.set(d.id, m.usuario.nombre)
+  }
+  return mapa
 }
 
 function EditorDepartamentos({
   miembro,
   departamentos,
+  duenoPorDepartamento,
   onGuardado,
   onCerrar,
 }: {
   miembro: MiembroCABDetalle
   departamentos: Departamento[]
+  duenoPorDepartamento: Map<number, string>
   onGuardado: (actualizado: MiembroCABDetalle) => void
   onCerrar: () => void
 }) {
@@ -141,7 +179,12 @@ function EditorDepartamentos({
           Sin ningún departamento seleccionado, esta persona ve <strong>todas</strong> las ideas.
         </p>
       )}
-      <SelectorDepartamentos departamentos={departamentos} seleccion={seleccion} onAlternar={alternar} />
+      <SelectorDepartamentos
+        departamentos={departamentos}
+        seleccion={seleccion}
+        onAlternar={alternar}
+        duenoPorDepartamento={duenoPorDepartamento}
+      />
       {error && <p className="form-error">{error}</p>}
       <div className="po-editor-acciones">
         <button className="btn-small" onClick={guardar} disabled={guardando}>
@@ -214,6 +257,7 @@ export default function ListaMiembrosCAB() {
       <FormularioMiembroCAB
         personas={personas}
         departamentos={departamentos}
+        duenoPorDepartamento={mapaDuenosDepartamento(miembros)}
         onAgregado={(m) => setMiembros((prev) => [...prev, m])}
       />
       {error && <p className="form-error">{error}</p>}
@@ -256,6 +300,7 @@ export default function ListaMiembrosCAB() {
                 <EditorDepartamentos
                   miembro={m}
                   departamentos={departamentos}
+                  duenoPorDepartamento={mapaDuenosDepartamento(miembros, m.id)}
                   onGuardado={handleDepartamentosGuardados}
                   onCerrar={() => setEditando(null)}
                 />

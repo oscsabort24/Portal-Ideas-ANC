@@ -1340,6 +1340,13 @@ select.form-input { background: var(--surface); cursor: pointer; }
 }
 .po-checkboxes { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
 .po-checkbox { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text); }
+/* Departamento que ya pertenece a otro Portfolio Owner: no se puede elegir.
+   Se atenúa y se tacha en vez de esconderlo, para que se vea que el
+   departamento existe y de quién es — ocultarlo dejaría al admin buscando
+   una opción que no aparece. */
+.po-checkbox-ocupado { color: var(--text-light); text-decoration: line-through; cursor: not-allowed; }
+.po-checkbox-ocupado input { cursor: not-allowed; }
+.po-checkbox-dueno { text-decoration: none; font-size: 12px; font-style: italic; }
 .po-editor-acciones { display: flex; gap: 8px; }
 
 .po-pie { border-top: 1px solid var(--border-light); padding-top: 8px; }
