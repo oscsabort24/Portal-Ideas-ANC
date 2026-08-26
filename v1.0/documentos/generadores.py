@@ -42,6 +42,8 @@ _VERDE_CLARO_HEX = "E8F5ED"
 _NARANJA_OSCURO = RGBColor(0xB4, 0x53, 0x09)
 _NARANJA_CLARO_HEX = "FEF3C7"
 _BLANCO = RGBColor(0xFF, 0xFF, 0xFF)
+# Equivalente a .doc-brand-sub del HTML (var(--text-light)).
+_GRIS = RGBColor(0x6B, 0x72, 0x80)
 
 _RACI_COLORES = {
     "R": ("E8F4FD", RGBColor(0x2E, 0x5F, 0xAA)),
@@ -81,7 +83,48 @@ def _borde_inferior(paragraph, color_hex: str, grosor: int = 18) -> None:
     pPr.append(pBdr)
 
 
+_RUTA_LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.jpg")
+
+# Mismos textos de marca que el encabezado HTML/PDF (plantillas_html.py:_DOC_HEADER).
+# Duplicados a propósito: .docx no soporta CSS y las dos rutas de generación no
+# comparten plantilla, así que no hay una fuente común que importar sin inventar
+# una capa de abstracción para dos strings. Si cambia la marca, cambian los dos.
+_MARCA_NOMBRE = "Grupo ANC"
+_MARCA_SUB = "Alamo · Enterprise · National"
+
+
+def _agregar_marca(doc: Document) -> None:
+    """Logo + nombre de marca, arriba del título.
+
+    El encabezado del .docx no tenía nada de esto y el del PDF sí, así que el
+    mismo documento se veía distinto según el formato que descargara la
+    persona (reportado por PM sobre el One-Pager; en realidad afectaba a los
+    6, porque todos usan _agregar_encabezado).
+
+    Si el logo no está en disco se sigue sin él en vez de reventar: un
+    documento sin logo es un problema cosmético, no generarlo es perder el
+    entregable.
+    """
+    if os.path.exists(_RUTA_LOGO):
+        parrafo_logo = doc.add_paragraph()
+        parrafo_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        # 0.55in ≈ los 44px de alto que usa .doc-brand-logo en el HTML.
+        parrafo_logo.add_run().add_picture(_RUTA_LOGO, height=Inches(0.55))
+
+    p_marca = doc.add_paragraph()
+    run_nombre = p_marca.add_run(_MARCA_NOMBRE)
+    run_nombre.font.color.rgb = _AZUL
+    run_nombre.font.bold = True
+    run_nombre.font.size = Pt(12)
+
+    run_sub = p_marca.add_run(f"\n{_MARCA_SUB}")
+    run_sub.font.color.rgb = _GRIS
+    run_sub.font.size = Pt(8.5)
+
+
 def _agregar_encabezado(doc: Document, titulo: str, subtitulo: str) -> None:
+    _agregar_marca(doc)
+
     p_titulo = doc.add_heading(titulo, level=0)
     for run in p_titulo.runs:
         run.font.color.rgb = _AZUL
