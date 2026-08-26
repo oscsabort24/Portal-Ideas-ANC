@@ -571,4 +571,20 @@ def renderizar_documento(tipo: str, datos: dict) -> str:
         # en un dict para poder iterarlos con un solo bucle en el template.
         contexto["bloques"] = datos
 
-    return Template(template).render(**contexto)
+    # autoescape=True: el contexto trae contenido narrativo generado por la IA
+    # a partir de lo que escribió la persona en la entrevista. Con el default
+    # de Jinja2 (autoescape=False) ese texto se interpreta como HTML, y el
+    # resultado se sirve en un <iframe srcDoc> (VistaPreviaDocumento.tsx) que
+    # hereda el origen de la app — un <script> ahí accedería al DOM y al
+    # localStorage donde MSAL guarda los tokens. Y los documentos los abren
+    # revisores y CAB, no solo el autor: es XSS almacenado contra usuarios de
+    # más privilegio.
+    #
+    # No hace falta ningún |safe: ningún campo depende de que el HTML NO se
+    # escape. Los saltos de línea del texto largo se resuelven por CSS
+    # (`white-space: pre-wrap`, ver .section-content y .bmc-content), no con
+    # <br>; el contexto nunca se arma concatenando tags; y los diagramas van
+    # en base64, cuyo alfabeto no contiene ningún carácter que Jinja escape.
+    # Verificado renderizando los 26 documentos reales de la BD con y sin
+    # autoescape: salida byte a byte idéntica.
+    return Template(template, autoescape=True).render(**contexto)
