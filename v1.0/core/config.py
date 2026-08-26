@@ -15,7 +15,11 @@ class Settings(BaseSettings):
 
     claude_stub_mode: bool = True
     claude_api_key: str = ""
-    claude_model: str = "claude-sonnet-4-6"
+    # Debe reflejar el modelo real en uso: si CLAUDE_MODEL falta en el .env,
+    # este default se aplica en silencio y el único aviso es el log de
+    # arranque, que nadie mira. Un default desactualizado hace que un
+    # despliegue mal configurado corra contra otro modelo sin que se note.
+    claude_model: str = "claude-sonnet-5"
 
     port: int = 8000
 
