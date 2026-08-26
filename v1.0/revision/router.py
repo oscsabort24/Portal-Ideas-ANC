@@ -25,10 +25,20 @@ from usuarios.dependencies import obtener_usuario_actual, requerir_admin
 router = APIRouter(prefix="/revision", tags=["revision"])
 
 
-def _validar_revisor_destino(db: Session, revisor_id: int) -> usuarios_models.Usuario:
+def _validar_revisor_destino(
+    db: Session, revisor_id: int, autor_id: int | None = None
+) -> usuarios_models.Usuario:
+    """`autor_id` es el autor de la idea que se va a revisar: nadie revisa lo
+    suyo. Se valida acá —el único punto por el que pasan tanto la asignación
+    manual del admin como la reasignación— y no en cada llamador."""
     revisor = db.get(usuarios_models.Usuario, revisor_id)
     if not revisor:
         raise HTTPException(status_code=404, detail="El usuario destino no existe")
+    if autor_id is not None and revisor.id == autor_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{revisor.nombre}' es quien propuso esta idea: nadie puede revisar la propia",
+        )
     if not rol_tiene_permiso(db, revisor.rol, ClavePermiso.es_revisor_elegible):
         raise HTTPException(
             status_code=400,
@@ -83,20 +93,21 @@ def candidatos_reasignar(
     rol con permiso es_revisor_elegible + activo + excluir a quien pide
     (no al revisor actual de esta idea, eso lo sigue rechazando
     _validar_revisor_destino/reasignar con 400 al confirmar, no se filtra
-    de la lista). idea_id no cambia el filtro hoy (la regla nunca dependió
-    de la idea) — se recibe por si eso cambia a futuro y para mantener la
-    URL simétrica con GET /comites/candidatos-reasignar/{idea_id}.
+    de la lista) y excluir al AUTOR de la idea, que nadie puede revisar lo
+    suyo. Ese segundo filtro sí depende de idea_id — antes el docstring decía
+    que el parámetro no cambiaba el filtro; ahora sí lo hace.
 
     Devuelve solo UsuarioBasicoOut (id, nombre, departamento_id) — sin rol
     ni correo, a diferencia de listarUsuarios() completo que ahora
     requiere admin."""
-    _obtener_revision(db, idea_id)
+    revision = _obtener_revision(db, idea_id)
     return (
         db.query(usuarios_models.Usuario)
         .filter(
             usuarios_models.Usuario.rol.in_(_roles_habilitados_revisor(db)),
             usuarios_models.Usuario.activo == True,  # noqa: E712
             usuarios_models.Usuario.id != usuario_actual.id,
+            usuarios_models.Usuario.id != revision.idea.autor_id,
         )
         .all()
     )
@@ -128,7 +139,7 @@ def asignar(
     if revision.estado != EstadoRevision.pendiente_asignacion:
         raise HTTPException(status_code=400, detail="Esta idea no está pendiente de asignación")
 
-    revisor = _validar_revisor_destino(db, payload.revisor_id)
+    revisor = _validar_revisor_destino(db, payload.revisor_id, autor_id=revision.idea.autor_id)
 
     revision.revisor_id = revisor.id
     revision.estado = EstadoRevision.pendiente_revision
@@ -275,7 +286,9 @@ def reasignar(
     if revision.estado != EstadoRevision.pendiente_revision:
         raise HTTPException(status_code=400, detail="Esta idea ya no está pendiente de revisión")
 
-    nuevo_revisor = _validar_revisor_destino(db, payload.nuevo_revisor_id)
+    nuevo_revisor = _validar_revisor_destino(
+        db, payload.nuevo_revisor_id, autor_id=revision.idea.autor_id
+    )
     if nuevo_revisor.id == revision.revisor_id:
         raise HTTPException(status_code=400, detail="Esa persona ya es la revisora de esta idea")
 

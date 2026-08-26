@@ -46,7 +46,21 @@ def _roles_habilitados_revisor(db: Session) -> list[RolUsuario]:
     return [rol for rol in RolUsuario if rol_tiene_permiso(db, rol, ClavePermiso.es_revisor_elegible)]
 
 
-def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | None:
+def _buscar_encargado_activo(
+    db: Session, departamento_id: int, excluir_usuario_id: int | None = None
+) -> Usuario | None:
+    """`excluir_usuario_id` es el AUTOR de la idea: nadie revisa lo suyo.
+
+    Sin esta exclusión, un autor con rol elegible en el departamento elegido
+    y el id más bajo se asignaba su propia idea — y como el criterio de
+    desempate es `id` ascendente, no era aleatorio: pasaba siempre para esa
+    persona. Se encontraron 2 revisiones así en la BD (ideas 22 y 25), las dos
+    ya aprobadas por el propio autor.
+
+    Se excluye acá y no en el llamador para que ningún camino de asignación
+    automática pueda olvidarse: los dos (sugerencia de IA y fallback por
+    departamento del autor) pasan por esta función.
+    """
     # ORDER BY Usuario.id: sin esto, con más de un usuario elegible activo en
     # el mismo departamento, el resultado dependía del plan de ejecución de
     # SQL Server (no determinístico) — se reprodujo en vivo el 19/8/2026 con
@@ -55,16 +69,14 @@ def _buscar_encargado_activo(db: Session, departamento_id: int) -> Usuario | Non
     # es el proxy determinístico más simple; no es la solución definitiva —
     # esa es activar ResponsableArea (Fase 3, ver nota del módulo arriba)
     # cuando exista el seed real de datos del negocio.
-    return (
-        db.query(Usuario)
-        .filter(
-            Usuario.departamento_id == departamento_id,
-            Usuario.rol.in_(_roles_habilitados_revisor(db)),
-            Usuario.activo == True,  # noqa: E712
-        )
-        .order_by(Usuario.id.asc())
-        .first()
+    query = db.query(Usuario).filter(
+        Usuario.departamento_id == departamento_id,
+        Usuario.rol.in_(_roles_habilitados_revisor(db)),
+        Usuario.activo == True,  # noqa: E712
     )
+    if excluir_usuario_id is not None:
+        query = query.filter(Usuario.id != excluir_usuario_id)
+    return query.order_by(Usuario.id.asc()).first()
 
 
 def _criterio_asignacion_revisor(db: Session) -> str:
@@ -157,7 +169,7 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
             # una sugerencia real que evaluar — si no, queda None (no False).
             if idea.sugerencia_revisor_autor is not None:
                 acepto_sugerencia_autor = resultado_ia["acepto_sugerencia_autor"]
-            revisor = _buscar_encargado_activo(db, departamento_ia.id)
+            revisor = _buscar_encargado_activo(db, departamento_ia.id, excluir_usuario_id=idea.autor_id)
             if revisor is not None:
                 origen = OrigenAsignacion.mapeo_area
 
@@ -165,7 +177,9 @@ def crear_revision_para_idea(db: Session, idea: Idea) -> RevisionIdea:
         # Fallback: mismo departamento del autor (comportamiento original),
         # ya sea porque la IA falló o porque el departamento que sugirió no
         # tiene ningún usuario con rol habilitado para revisar activo todavía.
-        revisor = _buscar_encargado_activo(db, idea.autor.departamento_id)
+        revisor = _buscar_encargado_activo(
+            db, idea.autor.departamento_id, excluir_usuario_id=idea.autor_id
+        )
         if revisor is not None:
             origen = OrigenAsignacion.fallback_departamento_autor
 

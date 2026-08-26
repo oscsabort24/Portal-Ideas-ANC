@@ -162,12 +162,17 @@ def candidatos_reasignar(
 
     Devuelve solo UsuarioBasicoOut (id, nombre, departamento_id) — sin rol
     ni correo."""
-    _obtener_comite(db, idea_id)
+    comite = _obtener_comite(db, idea_id)
     return (
         db.query(usuarios_models.Usuario)
         .filter(
             usuarios_models.Usuario.activo == True,  # noqa: E712
             usuarios_models.Usuario.id != usuario_actual.id,
+            # El != usuario_actual.id de arriba excluye a QUIEN reasigna; este
+            # excluye al AUTOR de la idea, que es otra persona salvo casualidad.
+            # Sin él, el picker ofrecía al autor y el 400 de
+            # _validar_miembro_destino recién aparecía al confirmar.
+            usuarios_models.Usuario.id != comite.idea.autor_id,
         )
         .all()
     )
@@ -177,6 +182,13 @@ def _validar_miembro_destino(db: Session, comite: ComiteIdea, usuario_id: int) -
     destino = db.get(usuarios_models.Usuario, usuario_id)
     if not destino:
         raise HTTPException(status_code=404, detail="El usuario destino no existe")
+    # Nadie decide sobre su propia idea. Mismo criterio que
+    # revision/router.py:_validar_revisor_destino: la etapa cambia, la regla no.
+    if destino.id == comite.idea.autor_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{destino.nombre}' es quien propuso esta idea: no puede decidir sobre la propia",
+        )
     if not destino.activo:
         raise HTTPException(status_code=400, detail=f"'{destino.nombre}' está inactivo")
     # Debe ser miembro de CAB con acceso al departamento de ESTA idea
