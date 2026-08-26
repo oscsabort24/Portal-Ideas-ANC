@@ -17,6 +17,7 @@ import {
 } from '../api'
 import FormularioRice from './FormularioRice'
 import type { ComiteIdeaDetalle } from '../types'
+import { ayudaMotivo, motivoValido } from '../../core/motivoRechazo'
 
 type AccionAbierta = { comiteId: number; tipo: 'motivo-rechazo' | 'reasignar' | 'rechazar-reasignacion' } | null
 
@@ -79,7 +80,9 @@ export default function ColaComite() {
   }
 
   async function handleRechazar(ideaId: number) {
-    if (!motivo.trim()) return
+    // Misma condición que habilita el botón — el backend igual valida y
+    // devuelve 400 (core/rechazo.py), esto solo evita el viaje.
+    if (!motivoValido(motivo)) return
     setEnviando(true)
     setError(null)
     try {
@@ -254,10 +257,11 @@ export default function ColaComite() {
                     onChange={(e) => setMotivo(e.target.value)}
                     placeholder="Explica por qué se rechaza esta idea..."
                   />
+                  {ayudaMotivo(motivo) && <p className="form-help">{ayudaMotivo(motivo)}</p>}
                   <div className="form-row" style={{ marginTop: 10 }}>
                     <button
                       className="btn-primary"
-                      disabled={!motivo.trim() || enviando}
+                      disabled={!motivoValido(motivo) || enviando}
                       onClick={() => handleRechazar(c.idea_id)}
                     >
                       {enviando ? 'Enviando...' : 'Confirmar rechazo'}

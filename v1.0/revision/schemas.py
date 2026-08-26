@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.rechazo import MIN_MOTIVO_RECHAZO
+
 from ideas.models import TipoEventoIdea
 from ideas.schemas import IdeaOut
 from revision.models import EstadoRevision, OrigenAsignacion
@@ -76,7 +78,14 @@ class PedirCambiosRequest(BaseModel):
 
 
 class RechazarRequest(BaseModel):
-    motivo_rechazo: str = Field(min_length=1)
+    # 20 caracteres: un rechazo cierra la idea de forma FINAL (no se reabre ni
+    # se apela, ver revision/models.py:EstadoRevision.rechazada) y este texto
+    # es lo único que el autor va a recibir como explicación. "No aplica" o
+    # "no" pasaban el min_length=1 anterior.
+    #
+    # Se valida contra el texto YA recortado en el router, no solo acá: 20
+    # espacios cumplen min_length pero no explican nada.
+    motivo_rechazo: str = Field(min_length=MIN_MOTIVO_RECHAZO)
 
 
 class HistorialRetroalimentacionOut(BaseModel):

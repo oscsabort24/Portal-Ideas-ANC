@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from clasificacion.service import crear_clasificacion_para_idea
 from core.database import get_db
 from core.reasignacion import obtener_bloqueado_para_reasignar
+from core.rechazo import validar_motivo_rechazo
 from ideas.models import HistorialIdea, MensajeEntrevista, RolMensaje, TipoEventoIdea
 from ideas.service import siguiente_orden
 from permisos.models import ClavePermiso
@@ -199,8 +200,7 @@ def rechazar(
     diferencia de pedir-cambios) porque no hay ninguna acción posterior
     que el autor deba tomar en la entrevista: la idea queda cerrada.
     """
-    if not payload.motivo_rechazo.strip():
-        raise HTTPException(status_code=400, detail="El motivo de rechazo no puede estar vacío")
+    motivo = validar_motivo_rechazo(payload.motivo_rechazo)
 
     revision = _obtener_revision(db, idea_id)
     _validar_revisor_asignado(revision, usuario_actual)
@@ -208,7 +208,7 @@ def rechazar(
         raise HTTPException(status_code=400, detail="Esta idea ya no está pendiente de revisión")
 
     revision.estado = EstadoRevision.rechazada
-    revision.motivo_rechazo = payload.motivo_rechazo.strip()
+    revision.motivo_rechazo = motivo
     revision.fecha_resolucion = datetime.now(timezone.utc)
     db.commit()
     db.refresh(revision)

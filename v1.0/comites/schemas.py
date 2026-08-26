@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.rechazo import MIN_MOTIVO_RECHAZO
+
 from comites.models import EstadoComite, NivelEsfuerzo, NivelImpactoConfianza, PresupuestoRango, PrioridadRice
 from ideas.schemas import IdeaOut
 from usuarios.models import TipoCAB
@@ -42,7 +44,9 @@ class ComiteIdeaDetalleOut(ComiteIdeaOut):
 
 
 class RechazarRequest(BaseModel):
-    motivo_rechazo: str = Field(min_length=1)
+    # Mismo minimo y mismo motivo que revision/schemas.py:RechazarRequest —
+    # los dos puntos de rechazo del sistema tienen la misma exigencia.
+    motivo_rechazo: str = Field(min_length=MIN_MOTIVO_RECHAZO)
 
 
 class ReasignarComiteRequest(BaseModel):

@@ -16,6 +16,7 @@ import {
   rechazarReasignacion,
 } from '../api'
 import type { RevisionDetalle } from '../types'
+import { ayudaMotivo, motivoValido } from '../../core/motivoRechazo'
 
 type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' | 'rechazar' | 'rechazar-reasignacion' } | null
 
@@ -98,7 +99,9 @@ export default function MisRevisiones() {
   }
 
   async function handleRechazar(ideaId: number) {
-    if (!retroalimentacion.trim()) return
+    // Misma condición que habilita el botón — el backend igual valida y
+    // devuelve 400 (core/rechazo.py), esto solo evita el viaje.
+    if (!motivoValido(retroalimentacion)) return
     setEnviando(true)
     setError(null)
     try {
@@ -234,10 +237,13 @@ export default function MisRevisiones() {
                     onChange={(e) => setRetroalimentacion(e.target.value)}
                     placeholder="Explica por qué se rechaza esta idea..."
                   />
+                  {ayudaMotivo(retroalimentacion) && (
+                    <p className="form-help">{ayudaMotivo(retroalimentacion)}</p>
+                  )}
                   <div className="form-row" style={{ marginTop: 10 }}>
                     <button
                       className="btn-primary"
-                      disabled={!retroalimentacion.trim() || enviando}
+                      disabled={!motivoValido(retroalimentacion) || enviando}
                       onClick={() => handleRechazar(r.idea_id)}
                     >
                       {enviando ? 'Enviando...' : 'Confirmar rechazo'}

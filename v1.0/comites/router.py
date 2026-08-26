@@ -12,6 +12,7 @@ from comites.service import departamentos_visibles, idea_departamento_visible
 from core.database import get_db
 from core.reasignacion import aplicar_rechazo_reasignacion as _aplicar_rechazo_generico
 from core.reasignacion import obtener_bloqueado_para_reasignar
+from core.rechazo import validar_motivo_rechazo
 from ideas.models import HistorialIdea, Idea, TipoEventoIdea
 from usuarios import models as usuarios_models
 from usuarios import schemas as usuarios_schemas
@@ -126,8 +127,7 @@ def rechazar(
     db: Session = Depends(get_db),
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
-    if not payload.motivo_rechazo.strip():
-        raise HTTPException(status_code=400, detail="El motivo de rechazo no puede estar vacío")
+    motivo = validar_motivo_rechazo(payload.motivo_rechazo)
 
     comite = _obtener_comite(db, idea_id)
     _validar_acceso_comite_idea(db, usuario_actual, comite)
@@ -135,7 +135,7 @@ def rechazar(
         raise HTTPException(status_code=400, detail="Esta idea ya fue resuelta por el comité")
 
     comite.estado = EstadoComite.rechazada
-    comite.motivo_rechazo = payload.motivo_rechazo.strip()
+    comite.motivo_rechazo = motivo
     comite.aprobada_o_rechazada_por_id = usuario_actual.id
     comite.fecha_resolucion = datetime.now(timezone.utc)
     db.commit()
