@@ -55,6 +55,17 @@ class IdeaOut(BaseModel):
     fecha_envio: datetime | None
     progreso_bloques: ProgresoBloquesOut | None
 
+    # Estado real del flujo (revision_en_curso, comite_en_cola,
+    # documentos_completos...), derivado por
+    # trazabilidad/service.py:estados_flow_por_idea. `estado` de arriba solo
+    # distingue borrador/enviada, así que el badge de "Mis ideas" decía
+    # "enviada" desde el envío hasta la aprobación del comité.
+    #
+    # Opcional porque solo lo llena el listado (GET /ideas): en el detalle la
+    # línea de tiempo ya cuenta lo mismo con más contexto, y calcularlo ahí
+    # sería trabajo de más.
+    estado_flow: str | None = None
+
 
 class IdeaDetalleOut(IdeaOut):
     mensajes: list[MensajeEntrevistaOut]

@@ -280,8 +280,28 @@ a { color: inherit; text-decoration: none; }
   text-transform: uppercase;
   letter-spacing: .3px;
 }
+/* Neutro por defecto: el badge ahora muestra estado_flow, que tiene 10
+   valores posibles. Sin esta regla base, un estado sin color propio quedaba
+   sin fondo y se leía como texto suelto. */
+.idea-estado-badge { background: var(--bg-muted, #F0F0EF); color: var(--text-light); }
+
 .idea-estado-badge.borrador { background: var(--partial-bg); color: var(--partial); }
 .idea-estado-badge.enviada  { background: var(--success-bg); color: var(--success); }
+
+/* Agrupados por etapa, no un color por estado: al colaborador le importa
+   "va avanzando" / "necesita algo mío" / "se cerró", no el detalle interno. */
+.idea-estado-badge.revision_pendiente_asignacion,
+.idea-estado-badge.revision_en_curso,
+.idea-estado-badge.clasificacion_pendiente,
+.idea-estado-badge.comite_en_cola { background: var(--info-bg, #E8F4FD); color: var(--primary); }
+
+.idea-estado-badge.revision_cambios_solicitados { background: var(--partial-bg); color: var(--partial); }
+
+.idea-estado-badge.comite_rechazada { background: var(--error-bg, #FEE2E2); color: var(--error); }
+
+.idea-estado-badge.comite_aprobada_sin_documentos,
+.idea-estado-badge.documentos_en_generacion,
+.idea-estado-badge.documentos_completos { background: var(--success-bg); color: var(--success); }
 
 /* ─────────────────────────────────────────────
    FORMULARIO NUEVA IDEA

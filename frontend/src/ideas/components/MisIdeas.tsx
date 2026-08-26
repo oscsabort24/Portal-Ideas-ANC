@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FiFileText, FiCheckCircle } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
+import { ETIQUETA_ESTADO_FLOW } from '../../trazabilidad/estadosFlow'
 import { listarIdeas } from '../api'
 import type { Idea } from '../types'
 
@@ -49,7 +50,13 @@ export default function MisIdeas() {
                 <div className="idea-card-date">Creada el {formatearFecha(idea.fecha_creacion)}</div>
               </div>
             </div>
-            <span className={`idea-estado-badge ${idea.estado}`}>{idea.estado}</span>
+            {/* Se prefiere estado_flow: `estado` solo distingue
+                borrador/enviada, asi que decia "enviada" desde el envio hasta
+                la aprobacion del comite — informacion muerta para el autor.
+                El fallback cubre el caso de que el backend no lo mande. */}
+            <span className={`idea-estado-badge ${idea.estado_flow ?? idea.estado}`}>
+              {idea.estado_flow ? ETIQUETA_ESTADO_FLOW[idea.estado_flow] : idea.estado}
+            </span>
           </div>
         </div>
       ))}

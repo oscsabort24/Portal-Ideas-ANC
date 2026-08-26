@@ -109,6 +109,61 @@ def _derivar_estado(
     return "documentos_completos", max(d.generado_en for d in documentos)
 
 
+def estados_flow_por_idea(db: Session, ideas: list[Idea]) -> dict[int, str]:
+    """{idea_id: estado_flow} para un conjunto acotado de ideas.
+
+    Existe para que GET /ideas pueda pintar el estado real del flujo en la
+    lista de "Mis ideas" (Idea.estado solo distingue borrador/enviada, así que
+    el badge decía "enviada" desde el envío hasta la aprobación del comité).
+
+    EN BLOQUE, no por idea: son 5 queries fijas filtradas por los idea_id
+    pedidos, no 5 por cada idea. Hacerlo con un `_derivar_estado` por fila
+    habría metido un N+1 en el endpoint que más se llama de la app.
+
+    No reusa construir_flow_control porque ese carga TODAS las ideas del
+    sistema y resuelve además autores, revisores y miembros de CAB — para un
+    badge alcanza el estado, y un colaborador solo pide las suyas.
+    """
+    if not ideas:
+        return {}
+
+    ids = [idea.id for idea in ideas]
+
+    revisiones = {r.idea_id: r for r in db.query(RevisionIdea).filter(RevisionIdea.idea_id.in_(ids)).all()}
+    clasificaciones = {
+        c.idea_id: c for c in db.query(ClasificacionIdea).filter(ClasificacionIdea.idea_id.in_(ids)).all()
+    }
+    comites = {c.idea_id: c for c in db.query(ComiteIdea).filter(ComiteIdea.idea_id.in_(ids)).all()}
+
+    documentos_por_idea: dict[int, list[DocumentoGenerado]] = defaultdict(list)
+    for doc in db.query(DocumentoGenerado).filter(DocumentoGenerado.idea_id.in_(ids)).all():
+        documentos_por_idea[doc.idea_id].append(doc)
+
+    ultima_retro_por_revision: dict[int, HistorialRetroalimentacion] = {}
+    revision_ids = [r.id for r in revisiones.values()]
+    if revision_ids:
+        for h in (
+            db.query(HistorialRetroalimentacion)
+            .filter(HistorialRetroalimentacion.revision_id.in_(revision_ids))
+            .order_by(HistorialRetroalimentacion.creada_en)
+            .all()
+        ):
+            ultima_retro_por_revision[h.revision_id] = h
+
+    resultado: dict[int, str] = {}
+    for idea in ideas:
+        estado_flow, _fecha = _derivar_estado(
+            idea,
+            revisiones.get(idea.id),
+            clasificaciones.get(idea.id),
+            comites.get(idea.id),
+            documentos_por_idea.get(idea.id, []),
+            ultima_retro_por_revision,
+        )
+        resultado[idea.id] = estado_flow
+    return resultado
+
+
 def construir_flow_control(db: Session) -> list[dict]:
     ideas = db.query(Idea).options(joinedload(Idea.autor)).all()
 

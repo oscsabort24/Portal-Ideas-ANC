@@ -92,7 +92,20 @@ def listar_ideas(
         query = query.filter(Idea.autor_id == autor_id)
     if estado is not None:
         query = query.filter(Idea.estado == estado)
-    return query.order_by(Idea.fecha_creacion.desc()).all()
+    ideas = query.order_by(Idea.fecha_creacion.desc()).all()
+
+    # Import local: trazabilidad/ ya importa de ideas/, así que a nivel de
+    # módulo esto sería un ciclo.
+    from trazabilidad.service import estados_flow_por_idea
+
+    # En bloque para las ideas ya filtradas — 5 queries fijas, no 5 por idea.
+    estados_flow = estados_flow_por_idea(db, ideas)
+    return [
+        schemas.IdeaOut.model_validate(idea).model_copy(
+            update={"estado_flow": estados_flow.get(idea.id)}
+        )
+        for idea in ideas
+    ]
 
 
 def _puede_ver_idea(db: Session, idea: Idea, usuario: Usuario) -> bool:

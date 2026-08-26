@@ -1,3 +1,5 @@
+import type { EstadoFlow } from '../trazabilidad/types'
+
 export type EstadoIdea = 'borrador' | 'enviada'
 export type RolMensaje = 'usuario' | 'asistente'
 export type EstadoBloque = 'pendiente' | 'en_progreso' | 'completado'
@@ -30,6 +32,10 @@ export interface Idea {
   fecha_actualizacion: string
   fecha_envio: string | null
   progreso_bloques: ProgresoBloques | null
+  // Estado real del flujo. Solo lo llena el listado (GET /ideas); en el
+  // detalle viene null y la línea de tiempo cuenta lo mismo con más contexto.
+  // Ver ideas/schemas.py:IdeaOut.estado_flow.
+  estado_flow: EstadoFlow | null
 }
 
 export interface IdeaDetalle extends Idea {
