@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import { guardarPermisosRol, listarPermisosRol } from '../api'
 import {
   DESCRIPCION_ROL,
@@ -42,6 +43,36 @@ function ReferenciaRoles() {
       <p className="form-help" style={{ marginTop: 16 }}>
         Aparte de estos 4 roles, ser Portfolio Owner da acceso a ver los documentos de las ideas
         de los departamentos que tenga asignados, sin importar el rol de la persona.
+      </p>
+    </div>
+  )
+}
+
+/** Lo que ve quien no es administrador en la pestaña de permisos.
+ *
+ * La pestaña se sigue mostrando a todos a propósito: saber que los permisos
+ * son configurables —y por quién— es información útil para cualquiera que se
+ * pregunte por qué no ve algo. Lo que no se muestra es la grilla.
+ *
+ * No es solo cosmético: GET /permisos-rol ya exigía admin
+ * (permisos/router.py), así que hasta ahora un no-admin que abría esta
+ * pestaña recibía un 403 crudo en pantalla. Nunca hubo fuga de datos, pero
+ * la persona veía un error como si algo estuviera roto. */
+function NotaPermisosSoloAdmin() {
+  return (
+    <div>
+      <p className="form-help" style={{ marginBottom: 12 }}>
+        El sistema tiene <strong>cuatro permisos configurables</strong> que definen qué puede
+        hacer cada rol: ver todas las ideas, ver Flow Control, ser elegible como revisor y
+        corregir la clasificación de una idea.
+      </p>
+      <p className="form-help" style={{ marginBottom: 12 }}>
+        Su configuración es exclusiva de los administradores, así que esta pantalla es de solo
+        lectura para tu rol. Si necesitás un permiso que hoy no tenés, pedíselo a un
+        administrador.
+      </p>
+      <p className="form-help">
+        El rol <strong>Administrador</strong> siempre tiene acceso completo y no es configurable.
       </p>
     </div>
   )
@@ -165,6 +196,10 @@ function PermisosConfigurables() {
 
 export default function RolesView() {
   const [pestana, setPestana] = useState<'referencia' | 'permisos'>('referencia')
+  // El gate real de la grilla vive en el backend (requerir_admin en GET y PUT
+  // de /permisos-rol). Esto decide qué se dibuja, no qué se autoriza: si
+  // alguien fuerza esAdmin en el cliente, la petición igual vuelve 403.
+  const esAdmin = useUsuarioActual().rol === 'admin'
 
   return (
     <div>
@@ -188,7 +223,13 @@ export default function RolesView() {
       </div>
 
       <div className="tab-content">
-        {pestana === 'referencia' ? <ReferenciaRoles /> : <PermisosConfigurables />}
+        {pestana === 'referencia' ? (
+          <ReferenciaRoles />
+        ) : esAdmin ? (
+          <PermisosConfigurables />
+        ) : (
+          <NotaPermisosSoloAdmin />
+        )}
       </div>
     </div>
   )
