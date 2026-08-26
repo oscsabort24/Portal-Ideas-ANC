@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Literal
 
 import anthropic
+import httpx
 from pydantic import BaseModel, Field, create_model
 
 from core.config import settings
@@ -23,7 +24,39 @@ from usuarios.models import TipoCAB
 
 logger = logging.getLogger(__name__)
 
-_client = anthropic.Anthropic(api_key=settings.claude_api_key)
+# timeout y max_retries EXPLÍCITOS. Los defaults del SDK 0.116.0 son
+# Timeout(connect=5, read=600, write=600, pool=600) y max_retries=2, o sea
+# que una sola llamada puede tardar hasta ~30 minutos. El frontend aborta a
+# los 40 s (ChatEntrevista.tsx:TIMEOUT_ENVIO_MS), así que sin esto el backend
+# sigue trabajando —ocupando un hilo del threadpool, porque el endpoint es
+# sync (ideas/router.py:enviar_mensaje)— mucho después de que la persona ya
+# vio un error.
+#
+# Presupuesto por debajo de esos 40 s, para que la persona reciba una
+# respuesta degradada real en vez de un abort del navegador:
+#   intento 1 (read)        12.0 s
+#   backoff del SDK          0.5 s  (máx.; ver cálculo abajo)
+#   intento 2 (read)        12.0 s
+#   ───────────────────────────────
+#   peor caso típico       ~24.5 s
+#
+# El backoff sale de _base_client.py:_calculate_retry_timeout:
+#   nb_retries = max_retries - remaining_retries = 0 en el primer reintento
+#   sleep = min(INITIAL_RETRY_DELAY * 2**0, MAX_RETRY_DELAY) = 0.5 s
+#   jitter = 1 - 0.25*random()  ->  (0.75, 1.0]
+#   backoff real ∈ (0.375, 0.5] s
+#
+# EXCEPCIÓN conocida: si la API responde con cabecera `retry-after`, el SDK
+# la obedece tal cual hasta 60 s (_base_client.py:826-829) e ignora el
+# backoff exponencial. Eso pasa en un 429 por rate limit y puede empujar el
+# total a ~85 s. No se puede acotar desde acá; en ese caso el abort del
+# frontend a los 40 s es la red de contención, y la persona ve un error
+# limpio en vez de un cuelgue. Reintentar rápido un 429 tampoco ayudaría.
+_client = anthropic.Anthropic(
+    api_key=settings.claude_api_key,
+    timeout=httpx.Timeout(connect=5.0, read=12.0, write=10.0, pool=5.0),
+    max_retries=1,
+)
 
 
 class EstadoBloque(str, Enum):
