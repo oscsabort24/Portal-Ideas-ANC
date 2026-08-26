@@ -2,7 +2,6 @@ import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../core/api'
 import type {
   ActualizarDepartamentosMiembroCABRequest,
   Departamento,
-  MiembroCAB,
   MiembroCABDetalle,
   PermisoRol,
   PermisoRolActualizar,
@@ -91,11 +90,15 @@ export function listarMiembrosCab(): Promise<MiembroCABDetalle[]> {
   return apiGet<MiembroCABDetalle[]>('/usuarios/cab/')
 }
 
+/** Alta en un solo paso. `tipo_cab` ya no se manda (el backend aplica un
+ *  default de compatibilidad) y `departamento_ids` define el alcance desde
+ *  el alta — lista vacía = ve todos los departamentos. La respuesta es el
+ *  detalle completo, con usuario y departamentos ya resueltos. */
 export function agregarMiembroCab(payload: {
   usuario_id: number
-  tipo_cab: MiembroCAB['tipo_cab']
-}): Promise<MiembroCAB> {
-  return apiPost<MiembroCAB>('/usuarios/cab/', payload)
+  departamento_ids: number[]
+}): Promise<MiembroCABDetalle> {
+  return apiPost<MiembroCABDetalle>('/usuarios/cab/', payload)
 }
 
 export function quitarMiembroCab(id: number): Promise<void> {

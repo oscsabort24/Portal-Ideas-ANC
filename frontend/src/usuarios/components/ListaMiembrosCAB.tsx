@@ -74,6 +74,32 @@ function ResumenAlcance({ alcance }: { alcance: Alcance }) {
   )
 }
 
+/** Grilla de checkboxes de departamentos.
+ *
+ * Vive acá y la reusa FormularioMiembroCAB (alta) además del editor de una
+ * ficha existente: son la MISMA decisión —qué departamentos ve esta persona—
+ * y tienen que verse y comportarse igual en los dos lados. */
+export function SelectorDepartamentos({
+  departamentos,
+  seleccion,
+  onAlternar,
+}: {
+  departamentos: Departamento[]
+  seleccion: number[]
+  onAlternar: (id: number) => void
+}) {
+  return (
+    <div className="po-checkboxes">
+      {departamentos.map((d) => (
+        <label key={d.id} className="po-checkbox">
+          <input type="checkbox" checked={seleccion.includes(d.id)} onChange={() => onAlternar(d.id)} />
+          {d.nombre}
+        </label>
+      ))}
+    </div>
+  )
+}
+
 function EditorDepartamentos({
   miembro,
   departamentos,
@@ -123,18 +149,7 @@ function EditorDepartamentos({
           Sin ningún departamento seleccionado, esta persona ve <strong>todas</strong> las ideas.
         </p>
       )}
-      <div className="po-checkboxes">
-        {departamentos.map((d) => (
-          <label key={d.id} className="po-checkbox">
-            <input
-              type="checkbox"
-              checked={seleccion.includes(d.id)}
-              onChange={() => alternar(d.id)}
-            />
-            {d.nombre}
-          </label>
-        ))}
-      </div>
+      <SelectorDepartamentos departamentos={departamentos} seleccion={seleccion} onAlternar={alternar} />
       {error && <p className="form-error">{error}</p>}
       <div className="po-editor-acciones">
         <button className="btn-small" onClick={guardar} disabled={guardando}>
@@ -206,6 +221,7 @@ export default function ListaMiembrosCAB() {
     <div>
       <FormularioMiembroCAB
         personas={personas}
+        departamentos={departamentos}
         onAgregado={(m) => setMiembros((prev) => [...prev, m])}
       />
       {error && <p className="form-error">{error}</p>}
