@@ -88,7 +88,22 @@ export default function VistaPreviaDocumento({
               <p>Cargando vista previa...</p>
             </div>
           )}
-          {html && <iframe className="preview-modal-iframe" srcDoc={html} title={`Vista previa ${tipo}`} />}
+          {/* sandbox="": un <iframe srcDoc> SIN sandbox hereda el origen de la
+              app, así que un <script> que se colara en el HTML del documento
+              correría con acceso al DOM y al localStorage donde MSAL guarda
+              los tokens. Con sandbox="" (lista de permisos vacía) el iframe
+              va a un origen opaco y no ejecuta scripts. El documento es
+              HTML+CSS puro —sin <script>, sin enlaces, sin formularios— así
+              que no pierde nada. Es defensa en profundidad: el escape ya se
+              hace al renderizar (documentos/plantillas_html.py). */}
+          {html && (
+            <iframe
+              className="preview-modal-iframe"
+              srcDoc={html}
+              sandbox=""
+              title={`Vista previa ${tipo}`}
+            />
+          )}
         </div>
 
         <div className="preview-modal-footer">
