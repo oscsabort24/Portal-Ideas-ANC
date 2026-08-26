@@ -11,6 +11,48 @@ def siguiente_orden(db: Session, idea_id: int) -> int:
     return (maximo or 0) + 1
 
 
+def historial_para_ia(db: Session, idea_id: int) -> list[dict]:
+    """Transcript de la entrevista en el formato que espera core/claude_client.
+
+    ÚNICO punto de entrada para armar el historial que se le manda al modelo.
+    Antes esta query estaba repetida en siete lugares —cuatro inline en
+    ideas/router.py y tres copias idénticas de `_historial_para_ia` en
+    clasificacion/, documentos/ y revision/— y ninguna filtraba los mensajes
+    degradados, así que un fallo técnico del backend volvía al modelo como si
+    fuera un turno propio del asistente. Eso contaminaba no solo la
+    entrevista sino el resumen que leen los revisores y el contenido de los
+    seis documentos formales que llegan al CAB.
+
+    Centralizarlo es parte del fix: cualquier consumidor futuro hereda el
+    filtro sin tener que acordarse.
+
+    OJO — hay dos lugares que consultan mensajes_entrevista y que NO deben
+    usar esta función, porque necesitan ver los mensajes tal como están
+    guardados:
+      - La búsqueda de idempotencia (ideas/router.py:enviar_mensaje): tiene
+        que encontrar el turno realmente persistido, degradado incluido. Si
+        se filtrara, un reintento no lo vería, crearía un turno nuevo y
+        violaría el índice único de idempotency_key.
+      - GET /ideas/{id}: devuelve el historial para pintar el chat, y la
+        persona debe seguir viendo su conversación completa.
+    """
+    mensajes = (
+        db.query(MensajeEntrevista)
+        .filter(
+            MensajeEntrevista.idea_id == idea_id,
+            # `== False` y no `.is_(False)`: SQL Server solo admite IS con
+            # NULL, así que .is_(False) genera "degradado IS 0" y revienta
+            # con "Incorrect syntax near '0'". Con `== False` sale
+            # "degradado = 0", que es lo correcto — y la columna es NOT NULL,
+            # así que no hay un tercer estado que se pueda escapar.
+            MensajeEntrevista.degradado == False,  # noqa: E712
+        )
+        .order_by(MensajeEntrevista.orden)
+        .all()
+    )
+    return [{"role": m.rol.value, "content": m.contenido} for m in mensajes]
+
+
 def construir_linea_tiempo(db: Session, idea: Idea) -> list[dict]:
     """Ensambla el timeline de una idea leyendo las tablas existentes de
     ideas/, revision/, clasificacion/, comites/ y documentos/ — no hay

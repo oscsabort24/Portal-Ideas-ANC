@@ -9,7 +9,7 @@ from core.claude_client import EstadoBloque, generar_respuesta, generar_resumen_
 from core.database import get_db
 from ideas import schemas
 from ideas.models import EstadoIdea, Idea, MensajeEntrevista, OrigenPregunta, PreguntaIdea, RolMensaje
-from ideas.service import construir_linea_tiempo, siguiente_orden
+from ideas.service import construir_linea_tiempo, historial_para_ia, siguiente_orden
 from revision.models import EstadoRevision, RevisionIdea
 from revision.service import crear_revision_para_idea
 from riesgo.models import AnalisisRiesgoIdea
@@ -184,6 +184,10 @@ def enviar_mensaje(
     # que si el turno anterior sí se guardó pero el cliente no llegó a ver
     # la respuesta (timeout de 40s, red caída), acá se devuelve el turno ya
     # generado en vez de crear uno nuevo y volver a llamar a la IA.
+    # NO usar historial_para_ia acá: esta búsqueda tiene que ver los mensajes
+    # tal como están guardados, degradados incluidos. Si se filtraran, un
+    # reintento no encontraría el turno ya persistido, crearía uno nuevo con
+    # la misma clave y violaría el índice único de idempotency_key.
     if idempotency_key:
         previo = (
             db.query(MensajeEntrevista)
@@ -242,13 +246,7 @@ def enviar_mensaje(
     db.add(mensaje_usuario)
     db.flush()
 
-    historial = (
-        db.query(MensajeEntrevista)
-        .filter(MensajeEntrevista.idea_id == idea_id)
-        .order_by(MensajeEntrevista.orden)
-        .all()
-    )
-    mensajes_para_ia = [{"role": m.rol.value, "content": m.contenido} for m in historial]
+    mensajes_para_ia = historial_para_ia(db, idea_id)
 
     respuesta = generar_respuesta(mensajes_para_ia, SYSTEM_PROMPT_ENTREVISTA, idea.autor.departamento_id)
 
@@ -325,14 +323,7 @@ def enviar_idea(
         idea.fecha_envio = datetime.now(timezone.utc)
         crear_revision_para_idea(db, idea)
 
-        historial = (
-            db.query(MensajeEntrevista)
-            .filter(MensajeEntrevista.idea_id == idea_id)
-            .order_by(MensajeEntrevista.orden)
-            .all()
-        )
-        mensajes_para_ia = [{"role": m.rol.value, "content": m.contenido} for m in historial]
-        crear_analisis_riesgo_para_idea(db, idea, mensajes_para_ia)
+        crear_analisis_riesgo_para_idea(db, idea, historial_para_ia(db, idea_id))
     else:
         revision = db.query(RevisionIdea).filter_by(idea_id=idea_id).first()
         if not revision or revision.estado != EstadoRevision.cambios_solicitados:
@@ -391,16 +382,29 @@ def obtener_resumen(
     if not _tiene_acceso_revision_o_comite(db, idea, usuario_actual):
         raise HTTPException(status_code=403, detail="No tienes acceso al resumen de esta idea")
 
-    historial = (
+    # Este endpoint necesita el historial en DOS versiones, y la diferencia
+    # importa:
+    #
+    # - Filtrado (historial_para_ia) para lo que alimenta a la IA y para el
+    #   texto de respaldo: sin el filtro, el "resumen" que ve un revisor podía
+    #   terminar siendo literalmente "Hubo un problema técnico al procesar tu
+    #   respuesta", porque ese era el último turno del asistente.
+    # - SIN filtrar para invalidar el cache: cualquier mensaje nuevo invalida
+    #   el resumen cacheado, incluso uno degradado — marca que la
+    #   conversación se movió desde que se generó.
+    mensajes_para_ia = historial_para_ia(db, idea_id)
+
+    ultimo_mensaje = (
         db.query(MensajeEntrevista)
         .filter(MensajeEntrevista.idea_id == idea_id)
-        .order_by(MensajeEntrevista.orden)
-        .all()
+        .order_by(MensajeEntrevista.orden.desc())
+        .first()
     )
-    ultimo_mensaje_asistente = next(
-        (m for m in reversed(historial) if m.rol == RolMensaje.asistente), None
+    ultimo_texto_asistente = next(
+        (m["content"] for m in reversed(mensajes_para_ia) if m["role"] == RolMensaje.asistente.value),
+        None,
     )
-    if not ultimo_mensaje_asistente:
+    if ultimo_mensaje is None or ultimo_texto_asistente is None:
         raise HTTPException(status_code=404, detail="Esta idea todavía no tiene un resumen disponible")
 
     analisis_riesgo = db.query(AnalisisRiesgoIdea).filter_by(idea_id=idea_id).first()
@@ -409,7 +413,6 @@ def obtener_resumen(
     # que se generó (comparar contra el timestamp del último mensaje del
     # transcript, sin importar el rol — una respuesta nueva del colaborador
     # también invalida el resumen, no solo un turno del asistente).
-    ultimo_mensaje = historial[-1]
     cache_vigente = (
         idea.resumen_ia is not None
         and idea.resumen_ia_generado_en is not None
@@ -419,7 +422,6 @@ def obtener_resumen(
     if cache_vigente:
         resumen_texto = idea.resumen_ia
     else:
-        mensajes_para_ia = [{"role": m.rol.value, "content": m.contenido} for m in historial]
         resumen_generado = generar_resumen_idea(mensajes_para_ia)
         if resumen_generado is not None:
             idea.resumen_ia = resumen_generado
@@ -431,7 +433,7 @@ def obtener_resumen(
             # resumen sintetizado, es el último turno del asistente — mejor
             # que un mensaje de error crudo, mismo criterio que ya se usaba
             # acá antes de tener resumen real.
-            resumen_texto = "Último intercambio de la entrevista:\n" + ultimo_mensaje_asistente.contenido
+            resumen_texto = "Último intercambio de la entrevista:\n" + ultimo_texto_asistente
 
     # Una idea con fila en ComiteIdea ya pasó por revisión aprobada —
     # revision/router.py:mis_revisiones solo lista revisiones en estado
@@ -474,15 +476,7 @@ def preguntar(
     if not _tiene_acceso_revision_o_comite(db, idea, usuario_actual):
         raise HTTPException(status_code=403, detail="No tienes acceso a esta idea")
 
-    historial = (
-        db.query(MensajeEntrevista)
-        .filter(MensajeEntrevista.idea_id == idea_id)
-        .order_by(MensajeEntrevista.orden)
-        .all()
-    )
-    mensajes_para_ia = [{"role": m.rol.value, "content": m.contenido} for m in historial]
-
-    respuesta = responder_pregunta_idea(mensajes_para_ia, payload.pregunta)
+    respuesta = responder_pregunta_idea(historial_para_ia(db, idea_id), payload.pregunta)
 
     db.add(
         PreguntaIdea(
