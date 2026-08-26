@@ -17,7 +17,7 @@ from typing import Literal
 
 import anthropic
 import httpx
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, ValidationError, create_model
 
 from core.config import settings
 from usuarios.models import TipoCAB
@@ -88,8 +88,14 @@ class RespuestaEntrevista(BaseModel):
     # min_length: en pruebas reales el modelo devolvió `message` vacío al
     # menos una vez (respuesta del usuario desalineada con la pregunta en
     # curso), y eso pintaba una burbuja en blanco en el chat. El mínimo
-    # empuja a la API a generar contenido; el fallback de generar_respuesta
-    # cubre el caso de que aun así venga vacío.
+    # empuja a la API a generar contenido.
+    #
+    # OJO: si aun así viene vacío, esta restricción hace que el SDK lance
+    # ValidationError DENTRO de messages.parse(), así que la ejecución nunca
+    # llega al chequeo de `mensaje vacío` de generar_respuesta más abajo —
+    # ese chequeo quedó como defensa para un `message` que sea solo espacios
+    # (pasa min_length pero queda vacío tras .strip()). El caso realmente
+    # vacío lo cubre el `except ValidationError`.
     message: str = Field(min_length=1)
     entrevista_completa: bool
     options: list[str] | None
@@ -262,6 +268,18 @@ _RESPUESTA_DEGRADADA_SIN_PARSEAR = {
     "raw": None,
 }
 
+# Cuando la IA devuelve un JSON que no valida contra RespuestaEntrevista
+# (típicamente `message` vacío), la persona no debería ver un error de
+# sistema: desde su lado esto es una conversación, no una transacción que
+# falló. Se repregunta y la entrevista sigue viva.
+_RESPUESTA_REPREGUNTA = {
+    "message": "Perdón, se me fue la idea. ¿Me lo repetís?",
+    "entrevista_completa": False,
+    "options": None,
+    "progreso_bloques": None,
+    "raw": None,
+}
+
 
 def _criterio_entrevista_departamento(departamento_id: int | None) -> str | None:
     """Ajuste ADITIVO al prompt de entrevista según el departamento del
@@ -337,6 +355,19 @@ def generar_respuesta(mensajes: list[dict], system_prompt: str, departamento_id:
         # rompe la conversación, degrada a un mensaje visible para reintentar.
         logger.error("generar_respuesta: fallo de API: %s", exc)
         return dict(_RESPUESTA_DEGRADADA_API)
+    except ValidationError as exc:
+        # El SDK valida el JSON contra RespuestaEntrevista DENTRO de
+        # messages.parse(), así que un `message` vacío revienta acá arriba y
+        # jamás alcanza el chequeo de mensaje vacío de más abajo — ese
+        # fallback estaba muerto para este caso, y la persona terminaba
+        # viendo "Hubo un problema técnico" (traceback real observado en
+        # producción el 2026-08-25).
+        #
+        # Va ANTES del `except Exception`: ValidationError hereda de
+        # ValueError -> Exception, así que si se invierte el orden esta rama
+        # nunca se ejecuta.
+        logger.warning("generar_respuesta: la IA devolvió un JSON inválido: %s", exc)
+        return dict(_RESPUESTA_REPREGUNTA)
     except Exception:
         # Red de seguridad: cualquier excepción no prevista que llegue hasta
         # acá sin atrapar se propagaría sin manejar hasta el router y
