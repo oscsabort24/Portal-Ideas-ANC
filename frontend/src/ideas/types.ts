@@ -1,7 +1,10 @@
 import type { EstadoFlow } from '../trazabilidad/types'
 
 export type EstadoIdea = 'borrador' | 'enviada'
-export type RolMensaje = 'usuario' | 'asistente'
+/** 'revisor' = comentario de un revisor de área al pedir cambios. NO es la
+ *  IA: se muestra con nombre y estilo propio, y el backend lo excluye del
+ *  contexto que le manda al modelo (ver ideas/service.py:historial_para_ia). */
+export type RolMensaje = 'usuario' | 'asistente' | 'revisor'
 export type EstadoBloque = 'pendiente' | 'en_progreso' | 'completado'
 
 export interface MensajeEntrevista {
@@ -10,6 +13,9 @@ export interface MensajeEntrevista {
   contenido: string
   orden: number
   creado_en: string
+  /** Quién lo escribió, cuando no es el autor ni la IA. Solo viene en los de
+   *  rol='revisor'. */
+  usuario: { id: number; nombre: string } | null
 }
 
 // Mismo orden y claves que core/claude_client.py:ProgresoBloques —

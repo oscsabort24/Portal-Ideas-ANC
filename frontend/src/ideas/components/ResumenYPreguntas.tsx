@@ -240,7 +240,14 @@ export default function ResumenYPreguntas({
                     {transcriptMensajes.map((m) => (
                       <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>
-                          {m.rol === 'usuario' ? 'Colaborador' : 'Asistente IA'}
+                          {/* Tres roles, no dos: antes este ternario etiquetaba
+                              como "Asistente IA" cualquier cosa que no fuera del
+                              colaborador, incluidos los comentarios del revisor. */}
+                          {m.rol === 'usuario'
+                            ? 'Colaborador'
+                            : m.rol === 'revisor'
+                              ? `${m.usuario?.nombre ?? 'Revisor de área'} (revisor)`
+                              : 'Asistente IA'}
                         </span>
                         <span style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.contenido}</span>
                       </div>

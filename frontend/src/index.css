@@ -2253,3 +2253,30 @@ select.form-input { background: var(--surface); cursor: pointer; }
   color: var(--text);
   font-style: italic;
 }
+
+/* Comentario de un revisor de área en el chat de la entrevista.
+   Tiene que ser inconfundible con la IA (que va a la izquierda, gris) y con
+   el autor (derecha, azul): se alinea a la izquierda pero con marca ámbar,
+   borde propio y el nombre de quien lo escribió arriba. */
+.message.revisor {
+  align-self: flex-start;
+  align-items: flex-start;
+  max-width: 82%;
+  margin: 10px 0;
+}
+
+.msg-autor-revisor {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--partial);
+  margin-bottom: 4px;
+  padding-left: 2px;
+}
+
+.msg-bubble-revisor {
+  background: var(--partial-bg);
+  color: var(--text);
+  border: 1px solid var(--partial);
+  border-left: 3px solid var(--partial);
+  border-radius: var(--radius);
+}
