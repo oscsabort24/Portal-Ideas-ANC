@@ -45,3 +45,12 @@ export interface RevisionDetalle extends Revision {
   propuesto_a: UsuarioResumen | null
   reasignacion_solicitada_por: UsuarioResumen | null
 }
+
+/** Una idea que este revisor aprobó y que el comité rechazó después.
+ *  Ver revision/schemas.py:RevisionRechazadaEnComiteOut. */
+export interface RevisionRechazadaEnComite {
+  idea: Idea
+  motivo_rechazo: string | null
+  fecha_resolucion: string | null
+  rechazada_por: UsuarioResumen | null
+}

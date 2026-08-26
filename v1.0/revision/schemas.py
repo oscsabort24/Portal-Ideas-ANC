@@ -46,6 +46,27 @@ class RevisionDetalleOut(RevisionOut):
     reasignacion_solicitada_por: UsuarioResumenOut | None
 
 
+class RevisionRechazadaEnComiteOut(BaseModel):
+    """Una idea que este revisor aprobó y que después el comité rechazó.
+
+    Existe porque GET /revision/mias solo devuelve lo pendiente: apenas el
+    encargado de área aprueba una idea, esa idea desaparece de su pantalla y
+    nada vuelve a llevarlo a ella. Si el comité la rechaza después, él no se
+    entera — el motivo queda en la línea de tiempo de la idea, que no tiene
+    razón de abrir.
+
+    Trae el motivo y quién rechazó ya resueltos para que el frontend lo
+    muestre en la misma tarjeta, sin pedir la línea de tiempo aparte.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    idea: IdeaOut
+    motivo_rechazo: str | None
+    fecha_resolucion: datetime | None
+    rechazada_por: UsuarioResumenOut | None
+
+
 class AsignarRequest(BaseModel):
     revisor_id: int
 

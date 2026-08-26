@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FiFileText } from 'react-icons/fi'
+import { FiFileText, FiXCircle } from 'react-icons/fi'
 import { useUsuarioActual } from '../../core/UsuarioActualContext'
 import DocumentosGenerados from '../../documentos/components/DocumentosGenerados'
 import ResumenYPreguntas from '../../ideas/components/ResumenYPreguntas'
@@ -12,13 +12,71 @@ import {
   misRevisiones,
   pedirCambios,
   reasignar,
+  rechazadasEnComite,
   rechazar,
   rechazarReasignacion,
 } from '../api'
-import type { RevisionDetalle } from '../types'
+import type { RevisionDetalle, RevisionRechazadaEnComite } from '../types'
 import { ayudaMotivo, motivoValido } from '../../core/motivoRechazo'
 
 type AccionAbierta = { revisionId: number; tipo: 'cambios' | 'reasignar' | 'rechazar' | 'rechazar-reasignacion' } | null
+
+/**
+ * Ideas que este revisor aprobó y que el comité rechazó después.
+ *
+ * Existe porque al aprobar, la idea sale de misRevisiones() —que solo trae lo
+ * pendiente— y nada vuelve a traer al encargado de área a ella. El motivo del
+ * rechazo quedaba únicamente en la línea de tiempo de la idea, que él no
+ * tiene por qué abrir. Se muestra el motivo acá mismo, no un link.
+ *
+ * Se oculta entera si no hay ninguna: es un aviso, no una sección fija que
+ * ocupe espacio con un "no hay nada" permanente.
+ */
+function SeccionRechazadasEnComite() {
+  const [items, setItems] = useState<RevisionRechazadaEnComite[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    rechazadasEnComite()
+      .then(setItems)
+      // Un fallo acá no puede tumbar la pantalla de revisiones, que es el
+      // trabajo real de la persona: se avisa y se sigue.
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar las ideas rechazadas en comité'))
+  }, [])
+
+  if (error) return <p className="form-error">{error}</p>
+  if (items.length === 0) return null
+
+  return (
+    <div className="rechazadas-comite">
+      <h2 className="rechazadas-comite-titulo">
+        Rechazadas en comité
+        <span className="rechazadas-comite-conteo">{items.length}</span>
+      </h2>
+      <p className="form-help" style={{ marginTop: -4 }}>
+        Ideas que aprobaste y que el comité decidió no avanzar.
+      </p>
+
+      {items.map((r) => (
+        <div key={r.idea.id} className="rechazadas-comite-card">
+          <div className="rechazadas-comite-encabezado">
+            <FiXCircle className="rechazadas-comite-icono" />
+            <div>
+              <div className="idea-card-title">{r.idea.titulo}</div>
+              <div className="idea-card-date">
+                {r.rechazada_por ? `Rechazada por ${r.rechazada_por.nombre}` : 'Rechazada por el comité'}
+                {r.fecha_resolucion && ` — ${new Date(r.fecha_resolucion).toLocaleDateString('es-CR')}`}
+              </div>
+            </div>
+          </div>
+          {r.motivo_rechazo && (
+            <blockquote className="rechazadas-comite-motivo">{r.motivo_rechazo}</blockquote>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function MisRevisiones() {
   const usuarioActual = useUsuarioActual()
@@ -166,6 +224,8 @@ export default function MisRevisiones() {
   return (
     <div>
       {error && <p className="form-error">{error}</p>}
+
+      <SeccionRechazadasEnComite />
 
       {revisiones.length === 0 ? (
         <p className="cab-vacio">No tienes ideas pendientes de revisión.</p>

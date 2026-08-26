@@ -2201,3 +2201,55 @@ select.form-input { background: var(--surface); cursor: pointer; }
 @media (max-width: 640px) {
   .mini-progreso { display: none; }
 }
+
+/* ─────────────────────────────────────────────
+   RECHAZADAS EN COMITÉ (aviso en Mis revisiones)
+───────────────────────────────────────────── */
+.rechazadas-comite {
+  border: 1px solid var(--error);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.rechazadas-comite-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--error);
+  margin: 0 0 4px;
+}
+
+.rechazadas-comite-conteo {
+  background: var(--error-bg, #FEE2E2);
+  color: var(--error);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.rechazadas-comite-card {
+  border-top: 1px solid var(--border-light);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.rechazadas-comite-encabezado { display: flex; align-items: flex-start; gap: 8px; }
+.rechazadas-comite-icono { color: var(--error); flex-shrink: 0; margin-top: 3px; }
+
+/* El motivo se muestra acá, no un link a la línea de tiempo: es el dato por
+   el que existe esta sección. */
+.rechazadas-comite-motivo {
+  margin: 8px 0 0 24px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  background: var(--bg-muted, #F0F0EF);
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
+  font-size: 13px;
+  color: var(--text);
+  font-style: italic;
+}

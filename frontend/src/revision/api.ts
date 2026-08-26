@@ -1,6 +1,6 @@
 import { apiGet, apiPost } from '../core/api'
 import type { UsuarioBasico } from '../usuarios/types'
-import type { Revision, RevisionDetalle } from './types'
+import type { Revision, RevisionDetalle, RevisionRechazadaEnComite } from './types'
 
 export function misRevisiones(): Promise<RevisionDetalle[]> {
   return apiGet<RevisionDetalle[]>('/revision/mias')
@@ -44,4 +44,11 @@ export function aceptarReasignacion(ideaId: number): Promise<Revision> {
 
 export function rechazarReasignacion(ideaId: number, motivo: string): Promise<Revision> {
   return apiPost<Revision>(`/revision/${ideaId}/rechazar-reasignacion`, { motivo })
+}
+
+/** Ideas que este revisor aprobó y el comité rechazó después. Es lo único
+ *  que se lo hace saber: al aprobar, la idea sale de misRevisiones() y nada
+ *  vuelve a traerlo a ella. */
+export function rechazadasEnComite(): Promise<RevisionRechazadaEnComite[]> {
+  return apiGet<RevisionRechazadaEnComite[]>('/revision/rechazadas-en-comite')
 }

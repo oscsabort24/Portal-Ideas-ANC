@@ -82,6 +82,50 @@ def mis_revisiones(
     return query.all()
 
 
+@router.get("/rechazadas-en-comite", response_model=list[schemas.RevisionRechazadaEnComiteOut])
+def rechazadas_en_comite(
+    db: Session = Depends(get_db),
+    usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
+):
+    """Ideas que ESTE revisor aprobó y que el comité rechazó después.
+
+    GET /revision/mias solo devuelve lo pendiente, así que al aprobar una idea
+    esta desaparece de la pantalla del encargado de área y nada vuelve a
+    traerlo. El motivo del rechazo del comité queda en la línea de tiempo de
+    la idea, que él no tiene por qué abrir. Este endpoint es lo que hace que
+    se entere.
+
+    Un admin ve TODAS, mismo criterio que mis_revisiones: puede actuar sobre
+    cualquier revisión, así que también le sirve verlas todas.
+
+    Solo rechazos: una idea aprobada por el comité sigue su curso normal y el
+    revisor no necesita que se le avise de nada.
+    """
+    from comites.models import ComiteIdea, EstadoComite
+
+    query = (
+        db.query(RevisionIdea, ComiteIdea)
+        .join(ComiteIdea, ComiteIdea.idea_id == RevisionIdea.idea_id)
+        .filter(
+            RevisionIdea.estado == EstadoRevision.aprobada,
+            ComiteIdea.estado == EstadoComite.rechazada,
+        )
+    )
+    if usuario_actual.rol != usuarios_models.RolUsuario.admin:
+        query = query.filter(RevisionIdea.revisor_id == usuario_actual.id)
+
+    filas = query.order_by(ComiteIdea.fecha_resolucion.desc()).all()
+    return [
+        schemas.RevisionRechazadaEnComiteOut(
+            idea=revision.idea,
+            motivo_rechazo=comite.motivo_rechazo,
+            fecha_resolucion=comite.fecha_resolucion,
+            rechazada_por=comite.aprobada_o_rechazada_por,
+        )
+        for revision, comite in filas
+    ]
+
+
 @router.get("/candidatos-reasignar/{idea_id}", response_model=list[usuarios_schemas.UsuarioBasicoOut])
 def candidatos_reasignar(
     idea_id: int,
