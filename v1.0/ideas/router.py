@@ -152,7 +152,17 @@ def obtener_idea(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
 ):
-    return _obtener_idea_visible(db, idea_id, usuario_actual)
+    idea = _obtener_idea_visible(db, idea_id, usuario_actual)
+
+    # Mismo import local y misma función en bloque que listar_ideas — acá con
+    # una sola idea. El detalle lo necesita para el stepper de progreso; antes
+    # estado_flow solo lo llenaba el listado y en el detalle venía en null.
+    from trazabilidad.service import estados_flow_por_idea
+
+    estados_flow = estados_flow_por_idea(db, [idea])
+    return schemas.IdeaDetalleOut.model_validate(idea).model_copy(
+        update={"estado_flow": estados_flow.get(idea.id)}
+    )
 
 
 @router.get("/{idea_id}/linea-tiempo", response_model=list[schemas.EventoLineaTiempoOut])
