@@ -26,7 +26,7 @@ export default function FormularioMiembroCAB({
       if (usuario) onAgregado({ ...miembro, usuario, departamentos: [] })
       setUsuarioId('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo agregar al comité')
+      setError(err instanceof Error ? err.message : 'No se pudo agregar al Portfolio Owner')
     } finally {
       setEnviando(false)
     }
@@ -35,7 +35,7 @@ export default function FormularioMiembroCAB({
   return (
     <form className="form-card" onSubmit={handleSubmit}>
       <p className="nota-temporal">
-        Ser miembro de un CAB es independiente del rol de la persona en el organigrama.
+        Ser Portfolio Owner es independiente del rol de la persona en el organigrama.
       </p>
 
       <div className="form-row">
@@ -49,19 +49,28 @@ export default function FormularioMiembroCAB({
           </select>
         </div>
 
+        {/* El backend exige tipo_cab (MiembroCABCreate, nullable=False), así que
+            el formulario tiene que seguir enviándolo. Se muestra a la vista y
+            etiquetado como lo que realmente es en vez de ocultarlo con un
+            default fijo: eso dejaría un dato que nadie eligió y que igual
+            aparece en la ficha de cada persona. */}
         <div className="form-field">
-          <label className="form-label" htmlFor="tipoCab">Comité</label>
+          <label className="form-label" htmlFor="tipoCab">Clasificación</label>
           <select id="tipoCab" className="form-input" value={tipoCab} onChange={(e) => setTipoCab(e.target.value as TipoCAB)}>
             <option value="innovacion">Innovación</option>
             <option value="transformacion_digital">Transformación Digital</option>
           </select>
+          <p className="form-help">
+            Dato histórico: no afecta qué ideas ve esta persona. El alcance se define asignando
+            departamentos después de agregarla.
+          </p>
         </div>
       </div>
 
       {error && <p className="form-error">{error}</p>}
 
       <button type="submit" className="btn-primary" disabled={!usuarioId || enviando}>
-        {enviando ? 'Agregando...' : 'Agregar al comité'}
+        {enviando ? 'Agregando...' : 'Agregar Portfolio Owner'}
       </button>
     </form>
   )

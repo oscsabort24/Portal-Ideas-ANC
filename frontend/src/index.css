@@ -1267,6 +1267,84 @@ select.form-input { background: var(--surface); cursor: pointer; }
 }
 .cab-vacio { font-size: 13px; color: var(--text-light); font-style: italic; }
 
+/* ─── Portfolio Owners (pantalla /comite-cab) ───────────────
+   Ficha por persona: identidad arriba, departamentos como bloque
+   protagónico en el medio, y metadata (rol + clasificación histórica)
+   al pie en tipografía menor. El orden visual es deliberado: los
+   departamentos son lo único que determina el alcance real. */
+.po-card {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.po-card-encabezado { display: flex; align-items: center; gap: 10px; }
+.po-identidad { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.po-nombre { font-size: 14px; font-weight: 600; color: var(--text); }
+.po-identidad .item-simple-secundario { margin-left: 0; }
+
+.po-seccion { display: flex; gap: 14px; align-items: flex-start; }
+.po-etiqueta {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+  min-width: 118px;
+  padding-top: 3px;
+}
+.po-valor { flex: 1; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; min-width: 0; }
+
+.po-alcance { flex: 1; min-width: 0; }
+.po-alcance strong { font-size: 13px; color: var(--text); }
+.po-alcance .form-help { margin: 2px 0 0; }
+
+/* El comodín es el caso de mayor alcance y el que hoy pasa inadvertido:
+   un no-admin sin departamentos ve TODAS las ideas. Se destaca. */
+.po-alcance-comodin {
+  background: var(--partial-bg);
+  border-left: 3px solid var(--partial);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.po-alcance-comodin strong { color: var(--partial); }
+
+/* El admin también ve todo, pero por su rol: asignarle departamentos no
+   cambiaría nada, así que no es una situación a corregir y va neutra. */
+.po-alcance-admin {
+  background: var(--surface-2);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.po-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.po-chip {
+  background: var(--primary-faint);
+  color: var(--primary);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.po-editor {
+  border-top: 1px solid var(--border-light);
+  padding-top: 10px;
+}
+.po-checkboxes { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+.po-checkbox { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text); }
+.po-editor-acciones { display: flex; gap: 8px; }
+
+.po-pie { border-top: 1px solid var(--border-light); padding-top: 8px; }
+.po-metadata { font-size: 12px; color: var(--text-light); }
+
 /* ─────────────────────────────────────────────
    LINEA DE TIEMPO (detalle de idea)
 ───────────────────────────────────────────── */

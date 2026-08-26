@@ -8,22 +8,82 @@ import {
   listarUsuarios,
   quitarMiembroCab,
 } from '../api'
+import { ETIQUETA_ROL } from '../types'
 import type { Departamento, MiembroCABDetalle, TipoCAB, Usuario } from '../types'
 import FormularioMiembroCAB from './FormularioMiembroCAB'
 
-const NOMBRES_CAB: Record<TipoCAB, string> = {
-  innovacion: 'CAB Innovación',
-  transformacion_digital: 'CAB Transformación Digital',
+// tipo_cab quedó como metadata histórica: comites/service.py:departamentos_visibles
+// no lo consulta nunca. Se sigue mostrando porque es un dato real de cada
+// membresía, pero ya no agrupa ni ordena la pantalla.
+const CLASIFICACION_HISTORICA: Record<TipoCAB, string> = {
+  innovacion: 'Innovación',
+  transformacion_digital: 'Transformación Digital',
 }
 
-function SelectorDepartamentos({
+/** Las tres razones por las que un Portfolio Owner ve lo que ve. */
+type Alcance =
+  | { tipo: 'admin' }
+  | { tipo: 'comodin' }
+  | { tipo: 'acotado'; departamentos: Departamento[] }
+
+function calcularAlcance(miembro: MiembroCABDetalle): Alcance {
+  // El orden importa y refleja el de departamentos_visibles(): la condición
+  // de admin se evalúa primero y corta. A un admin los departamentos no le
+  // cambian nada, así que decirle "sin departamentos ve todo" sería
+  // engañoso — vería todo igual con departamentos asignados.
+  if (miembro.usuario.rol === 'admin') return { tipo: 'admin' }
+  if (miembro.departamentos.length === 0) return { tipo: 'comodin' }
+  return { tipo: 'acotado', departamentos: miembro.departamentos }
+}
+
+function ResumenAlcance({ alcance }: { alcance: Alcance }) {
+  if (alcance.tipo === 'admin') {
+    return (
+      <div className="po-alcance po-alcance-admin">
+        <strong>Todos los departamentos</strong>
+        <p className="form-help">
+          Ve todo el portafolio por su rol de Administrador. Asignarle departamentos no
+          cambiaría su alcance.
+        </p>
+      </div>
+    )
+  }
+
+  if (alcance.tipo === 'comodin') {
+    return (
+      <div className="po-alcance po-alcance-comodin">
+        <strong>⚠️ Todos los departamentos</strong>
+        <p className="form-help">
+          No tiene departamentos asignados, así que ve y decide sobre <strong>todas</strong> las
+          ideas del portafolio. Asignale departamentos para acotar su alcance.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="po-alcance">
+      <div className="po-chips">
+        {alcance.departamentos.map((d) => (
+          <span key={d.id} className="po-chip">
+            {d.nombre}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EditorDepartamentos({
   miembro,
   departamentos,
   onGuardado,
+  onCerrar,
 }: {
   miembro: MiembroCABDetalle
   departamentos: Departamento[]
   onGuardado: (actualizado: MiembroCABDetalle) => void
+  onCerrar: () => void
 }) {
   const [seleccion, setSeleccion] = useState<number[]>(miembro.departamentos.map((d) => d.id))
   const [guardando, setGuardando] = useState(false)
@@ -37,8 +97,11 @@ function SelectorDepartamentos({
     setGuardando(true)
     setError(null)
     try {
-      const actualizado = await actualizarDepartamentosMiembroCab(miembro.id, { departamento_ids: seleccion })
+      const actualizado = await actualizarDepartamentosMiembroCab(miembro.id, {
+        departamento_ids: seleccion,
+      })
       onGuardado(actualizado)
+      onCerrar()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudieron guardar los departamentos')
     } finally {
@@ -46,23 +109,41 @@ function SelectorDepartamentos({
     }
   }
 
+  const esAdmin = miembro.usuario.rol === 'admin'
+
   return (
-    <div className="item-simple-detalle" style={{ marginTop: 6 }}>
-      <p className="form-help" style={{ marginBottom: 4 }}>
-        Departamentos que ve (sin ninguno seleccionado = ve todos):
-      </p>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+    <div className="po-editor">
+      {esAdmin ? (
+        <p className="form-help">
+          Esta persona es Administradora: ve todas las ideas por su rol. Lo que elijas acá queda
+          guardado, pero no cambia qué ideas ve.
+        </p>
+      ) : (
+        <p className="form-help">
+          Sin ningún departamento seleccionado, esta persona ve <strong>todas</strong> las ideas.
+        </p>
+      )}
+      <div className="po-checkboxes">
         {departamentos.map((d) => (
-          <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <input type="checkbox" checked={seleccion.includes(d.id)} onChange={() => alternar(d.id)} />
+          <label key={d.id} className="po-checkbox">
+            <input
+              type="checkbox"
+              checked={seleccion.includes(d.id)}
+              onChange={() => alternar(d.id)}
+            />
             {d.nombre}
           </label>
         ))}
       </div>
       {error && <p className="form-error">{error}</p>}
-      <button className="btn-small" onClick={guardar} disabled={guardando}>
-        {guardando ? 'Guardando...' : 'Guardar departamentos'}
-      </button>
+      <div className="po-editor-acciones">
+        <button className="btn-small" onClick={guardar} disabled={guardando}>
+          {guardando ? 'Guardando...' : 'Guardar departamentos'}
+        </button>
+        <button className="btn-small" onClick={onCerrar} disabled={guardando}>
+          Cancelar
+        </button>
+      </div>
     </div>
   )
 }
@@ -73,6 +154,7 @@ export default function ListaMiembrosCAB() {
   const [miembros, setMiembros] = useState<MiembroCABDetalle[]>([])
   const [personas, setPersonas] = useState<Usuario[]>([])
   const [departamentos, setDepartamentos] = useState<Departamento[]>([])
+  const [editando, setEditando] = useState<number | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -83,20 +165,28 @@ export default function ListaMiembrosCAB() {
         setPersonas(p)
         setDepartamentos(d)
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar los comités'))
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : 'No se pudieron cargar los Portfolio Owners'),
+      )
       .finally(() => setCargando(false))
   }, [])
 
   async function handleQuitar(miembro: MiembroCABDetalle) {
-    const confirmado = window.confirm(
-      `¿Quitar a ${miembro.usuario.nombre} del ${NOMBRES_CAB[miembro.tipo_cab]}?`
-    )
-    if (!confirmado) return
+    // El confirm dice la consecuencia real, no la categoría: antes decía
+    // "¿Quitar a X del CAB Innovación?", que nombraba justo el dato que no
+    // determina nada.
+    const alcance = calcularAlcance(miembro)
+    const consecuencia =
+      alcance.tipo === 'acotado'
+        ? `Dejará de ver las ideas de: ${alcance.departamentos.map((d) => d.nombre).join(', ')}.`
+        : 'Dejará de participar en las decisiones del comité.'
+    if (!window.confirm(`¿Quitar a ${miembro.usuario.nombre} como Portfolio Owner?\n\n${consecuencia}`))
+      return
     try {
       await quitarMiembroCab(miembro.id)
       setMiembros((prev) => prev.filter((m) => m.id !== miembro.id))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo quitar al miembro del comité')
+      setError(err instanceof Error ? err.message : 'No se pudo quitar al Portfolio Owner')
     }
   }
 
@@ -106,46 +196,73 @@ export default function ListaMiembrosCAB() {
 
   if (cargando) return <p>Cargando...</p>
 
+  // Lista plana ordenada por nombre. Antes se agrupaba en dos secciones por
+  // tipo_cab, lo que presentaba esa clasificación como si dividiera el
+  // acceso; no lo hace. Ordenar por nombre también evita que una persona con
+  // dos membresías aparezca en dos bloques distantes de la pantalla.
+  const ordenados = [...miembros].sort((a, b) => a.usuario.nombre.localeCompare(b.usuario.nombre))
+
   return (
     <div>
-      <FormularioMiembroCAB personas={personas} onAgregado={(m) => setMiembros((prev) => [...prev, m])} />
+      <FormularioMiembroCAB
+        personas={personas}
+        onAgregado={(m) => setMiembros((prev) => [...prev, m])}
+      />
       {error && <p className="form-error">{error}</p>}
 
-      {(['innovacion', 'transformacion_digital'] as TipoCAB[]).map((tipo) => (
-        <div key={tipo} className="cab-grupo">
-          <h2 className="cab-grupo-titulo">{NOMBRES_CAB[tipo]}</h2>
-          <div className="lista-simple">
-            {miembros.filter((m) => m.tipo_cab === tipo).length === 0 && (
-              <p className="cab-vacio">Sin miembros asignados todavía.</p>
-            )}
-            {miembros
-              .filter((m) => m.tipo_cab === tipo)
-              .map((m) => (
-                <div key={m.id} className="item-simple" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <FiAward className="item-simple-icon" />
-                    {m.usuario.nombre}
-                    <span className="item-simple-secundario">{m.usuario.correo}</span>
-                    {esAdmin && (
-                      <div className="item-simple-actions">
-                        <button className="btn-small peligro" onClick={() => handleQuitar(m)}>
-                          Quitar
-                        </button>
-                      </div>
-                    )}
+      {ordenados.length === 0 && <p className="cab-vacio">Todavía no hay Portfolio Owners.</p>}
+
+      <div className="lista-simple">
+        {ordenados.map((m) => {
+          const alcance = calcularAlcance(m)
+          return (
+            <div key={m.id} className="po-card">
+              <div className="po-card-encabezado">
+                <FiAward className="item-simple-icon" />
+                <div className="po-identidad">
+                  <span className="po-nombre">{m.usuario.nombre}</span>
+                  <span className="item-simple-secundario">{m.usuario.correo}</span>
+                </div>
+                {esAdmin && (
+                  <div className="item-simple-actions">
+                    <button className="btn-small peligro" onClick={() => handleQuitar(m)}>
+                      Quitar
+                    </button>
                   </div>
-                  {esAdmin && (
-                    <SelectorDepartamentos
-                      miembro={m}
-                      departamentos={departamentos}
-                      onGuardado={handleDepartamentosGuardados}
-                    />
+                )}
+              </div>
+
+              <div className="po-seccion">
+                <span className="po-etiqueta">Departamentos</span>
+                <div className="po-valor">
+                  <ResumenAlcance alcance={alcance} />
+                  {esAdmin && editando !== m.id && (
+                    <button className="btn-small" onClick={() => setEditando(m.id)}>
+                      Asignar departamentos
+                    </button>
                   )}
                 </div>
-              ))}
-          </div>
-        </div>
-      ))}
+              </div>
+
+              {esAdmin && editando === m.id && (
+                <EditorDepartamentos
+                  miembro={m}
+                  departamentos={departamentos}
+                  onGuardado={handleDepartamentosGuardados}
+                  onCerrar={() => setEditando(null)}
+                />
+              )}
+
+              <div className="po-pie">
+                <span className="po-metadata">
+                  Rol: {ETIQUETA_ROL[m.usuario.rol]} · Clasificación histórica:{' '}
+                  {CLASIFICACION_HISTORICA[m.tipo_cab]}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
