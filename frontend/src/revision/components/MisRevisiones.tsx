@@ -142,7 +142,8 @@ export default function MisRevisiones() {
   }
 
   async function handlePedirCambios(ideaId: number) {
-    if (!retroalimentacion.trim()) return
+    // Mismo mínimo que rechazar — el backend valida igual (core/rechazo.py).
+    if (!motivoValido(retroalimentacion)) return
     setEnviando(true)
     setError(null)
     try {
@@ -273,10 +274,13 @@ export default function MisRevisiones() {
                     onChange={(e) => setRetroalimentacion(e.target.value)}
                     placeholder="Explica qué cambios necesita esta idea..."
                   />
+                  {ayudaMotivo(retroalimentacion) && (
+                    <p className="form-help">{ayudaMotivo(retroalimentacion)}</p>
+                  )}
                   <div className="form-row" style={{ marginTop: 10 }}>
                     <button
                       className="btn-primary"
-                      disabled={!retroalimentacion.trim() || enviando}
+                      disabled={!motivoValido(retroalimentacion) || enviando}
                       onClick={() => handlePedirCambios(r.idea_id)}
                     >
                       {enviando ? 'Enviando...' : 'Enviar retroalimentación'}

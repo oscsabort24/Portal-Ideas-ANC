@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from clasificacion.service import crear_clasificacion_para_idea
 from core.database import get_db
 from core.reasignacion import obtener_bloqueado_para_reasignar
-from core.rechazo import validar_motivo_rechazo
+from core.rechazo import validar_motivo_rechazo, validar_retroalimentacion
 from ideas.models import HistorialIdea, MensajeEntrevista, RolMensaje, TipoEventoIdea
 from ideas.service import siguiente_orden
 from permisos.models import ClavePermiso
@@ -266,15 +266,12 @@ def pedir_cambios(
     db: Session = Depends(get_db),
     usuario_actual: usuarios_models.Usuario = Depends(obtener_usuario_actual),
 ):
-    if not payload.retroalimentacion.strip():
-        raise HTTPException(status_code=400, detail="La retroalimentación no puede estar vacía")
+    texto = validar_retroalimentacion(payload.retroalimentacion)
 
     revision = _obtener_revision(db, idea_id)
     _validar_revisor_asignado(revision, usuario_actual)
     if revision.estado != EstadoRevision.pendiente_revision:
         raise HTTPException(status_code=400, detail="Esta idea ya no está pendiente de revisión")
-
-    texto = payload.retroalimentacion.strip()
 
     revision.estado = EstadoRevision.cambios_solicitados
     revision.retroalimentacion = texto

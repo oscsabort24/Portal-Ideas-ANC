@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.rechazo import MIN_MOTIVO_RECHAZO
+from core.rechazo import MIN_EXPLICACION, MIN_MOTIVO_RECHAZO
 
 from ideas.models import TipoEventoIdea
 from ideas.schemas import IdeaOut
@@ -95,7 +95,11 @@ class HistorialIdeaOut(BaseModel):
 
 
 class PedirCambiosRequest(BaseModel):
-    retroalimentacion: str = Field(min_length=1)
+    # Mismo mínimo que el motivo de rechazo (ver core/rechazo.py). Acá pesa
+    # aún más: un rechazo cierra la idea, pero un pedido de cambios le exige
+    # al autor una corrección — si el texto no dice qué corregir, lo deja sin
+    # saber qué hacer y con la idea trabada.
+    retroalimentacion: str = Field(min_length=MIN_EXPLICACION)
 
 
 class RechazarRequest(BaseModel):
