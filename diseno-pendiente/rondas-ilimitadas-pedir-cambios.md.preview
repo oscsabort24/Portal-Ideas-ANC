@@ -1,0 +1,57 @@
+# Pendiente: rondas ilimitadas de "pedir cambios"
+
+**Estado: diagnosticado, sin decidir. No hay código escrito para esto.**
+
+Detectado el 2026-08-26 auditando el flujo de `cambios_solicitados`, junto
+con otros tres hallazgos que **sí** se corrigieron ese mismo día:
+
+- el comentario del revisor volvía a la IA como texto propio → corregido
+  (`rol=revisor` + exclusión en `historial_para_ia`)
+- el autor no distinguía el comentario del revisor de la IA → corregido
+  (estilo y nombre propios en `BurbujaMensaje`)
+- `retroalimentacion` aceptaba 1 carácter → corregido (mínimo 20, igual que
+  el motivo de rechazo)
+
+Este cuarto quedó afuera a propósito, por decisión del PM: no es un problema
+activo hoy.
+
+## El hallazgo
+
+El ciclo `pedir-cambios → el autor corrige → reenviar → pedir-cambios` no
+tiene tope, contador ni escalamiento de ningún tipo.
+
+- `revision/router.py:pedir_cambios` no consulta ningún contador.
+- `revision_ideas` **no tiene** una columna para esto. Sí tiene
+  `rechazos_reasignacion_consecutivos`, pero eso cuenta rechazos de
+  **reasignación**, que es otra cosa.
+- `ideas/router.py:enviar_idea` reactiva la revisión sin mirar cuántas veces
+  ya pasó por ahí.
+
+Verificado ejecutando el ciclo 10 veces seguidas contra la BD local: las 10
+rondas se aceptaron sin ninguna advertencia. Cada ronda suma 2 mensajes al
+chat de la idea, así que el transcript crece indefinidamente — y ese
+transcript es el que alimenta el resumen para revisores y los 6 documentos
+formales del comité.
+
+## Por qué no urge
+
+En la BD local hay **1 sola ronda registrada** en total
+(`historial_retroalimentacion`, revisión 16, idea 26, ya aprobada). Es un
+riesgo abierto, no un problema que esté ocurriendo.
+
+## Opciones, si se decide atacarlo
+
+1. **Tope duro** (ej. 3 rondas) y después el revisor solo puede aprobar o
+   rechazar. Simple, pero le saca una herramienta legítima al revisor.
+2. **Escalamiento**: a partir de la ronda N se avisa al admin o al jefe de
+   área en vez de bloquear. Encaja con lo que ya hace
+   `notificaciones/`, aunque ese módulo hoy solo detecta vencimientos y su
+   envío de correo es stub.
+3. **Solo visibilidad**: mostrar el contador de rondas en la tarjeta de la
+   revisión y en el detalle de la idea, sin bloquear nada. Es lo más barato
+   y probablemente suficiente — el problema real es que hoy nadie ve que una
+   idea lleva 6 vueltas.
+
+Cualquiera de las tres necesita saber cuántas rondas lleva la revisión. Ese
+dato **ya existe** sin migración: `SELECT COUNT(*) FROM
+historial_retroalimentacion WHERE revision_id = ?`.
