@@ -187,6 +187,43 @@ def _validar_departamentos_existen(db: Session, departamento_ids: list[int]) -> 
         raise HTTPException(status_code=400, detail="Alguno de los departamentos no existe")
 
 
+def _validar_departamentos_sin_dueno(
+    db: Session, departamento_ids: list[int], miembro_id_actual: int | None
+) -> None:
+    """Un departamento pertenece a UN solo Portfolio Owner.
+
+    `miembro_id_actual` es la membresía que se está editando, para no
+    considerarla su propio conflicto (al reasignar el set completo en el PUT,
+    los departamentos que la persona YA tenía vuelven a venir en el payload).
+    En el alta todavía no hay membresía, así que va None.
+
+    La BD tiene el índice único que respalda esto
+    (uq_departamento_un_solo_portfolio_owner, migración f2a6d1c73e84). Esta
+    validación existe para responder 409 con el nombre del dueño actual en vez
+    de un IntegrityError 500, no para reemplazarlo: sin el índice, dos altas
+    concurrentes pasarían las dos por acá antes de que cualquiera inserte.
+    """
+    if not departamento_ids:
+        return
+
+    query = (
+        db.query(models.MiembroCABDepartamento.departamento_id, models.Departamento.nombre, models.Usuario.nombre)
+        .join(models.Departamento, models.Departamento.id == models.MiembroCABDepartamento.departamento_id)
+        .join(models.MiembroCAB, models.MiembroCAB.id == models.MiembroCABDepartamento.miembro_cab_id)
+        .join(models.Usuario, models.Usuario.id == models.MiembroCAB.usuario_id)
+        .filter(models.MiembroCABDepartamento.departamento_id.in_(departamento_ids))
+    )
+    if miembro_id_actual is not None:
+        query = query.filter(models.MiembroCABDepartamento.miembro_cab_id != miembro_id_actual)
+
+    ocupados = query.all()
+    if ocupados:
+        detalle = "; ".join(
+            f"'{nombre_depto}' ya está asignado a {nombre_dueno}" for _id, nombre_depto, nombre_dueno in ocupados
+        )
+        raise HTTPException(status_code=409, detail=detalle)
+
+
 @router.delete("/cab/{miembro_id}", status_code=204)
 def quitar_miembro_cab(
     miembro_id: int,
@@ -215,6 +252,7 @@ def actualizar_departamentos_miembro_cab(
         raise HTTPException(status_code=404, detail="Membresía de CAB no encontrada")
 
     _validar_departamentos_existen(db, payload.departamento_ids)
+    _validar_departamentos_sin_dueno(db, payload.departamento_ids, miembro_id_actual=miembro_id)
 
     db.query(models.MiembroCABDepartamento).filter_by(miembro_cab_id=miembro_id).delete()
     for depto_id in payload.departamento_ids:
@@ -419,6 +457,7 @@ def agregar_miembro_cab(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     _validar_departamentos_existen(db, payload.departamento_ids)
+    _validar_departamentos_sin_dueno(db, payload.departamento_ids, miembro_id_actual=None)
 
     # Explícito en vez de model_dump(): el payload ya no mapea 1:1 con las
     # columnas de MiembroCAB (departamento_ids va a otra tabla), y un

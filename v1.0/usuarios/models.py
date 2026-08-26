@@ -1,7 +1,16 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Unicode, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    Unicode,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
@@ -130,6 +139,12 @@ class MiembroCABDepartamento(Base):
     __tablename__ = "miembros_cab_departamentos"
     __table_args__ = (
         UniqueConstraint("miembro_cab_id", "departamento_id", name="uq_miembro_cab_departamento"),
+        # Un departamento pertenece a UN solo Portfolio Owner (la inversa sigue
+        # libre: una persona puede tener varios departamentos). El unique de
+        # arriba es sobre el PAR y no cubre esto — impide repetir el mismo
+        # departamento en la misma persona, no asignárselo a dos personas.
+        # Ver alembic/versions/f2a6d1c73e84_*.
+        Index("uq_departamento_un_solo_portfolio_owner", "departamento_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
