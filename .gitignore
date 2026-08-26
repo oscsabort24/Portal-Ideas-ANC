@@ -12,6 +12,12 @@ nohup.out
 service-account-key.json
 client_secret*.json
 
+# Permisos de herramientas de Claude Code por maquina: cambia con cada
+# sesion y no describe al proyecto. Estaba trackeado y ensuciaba el
+# git status de todos, por eso ademas se saco del indice con
+# `git rm --cached` (el archivo local se conserva).
+.claude/settings.local.json
+
 # v1.0 (Python/FastAPI)
 __pycache__/
 *.pyc
