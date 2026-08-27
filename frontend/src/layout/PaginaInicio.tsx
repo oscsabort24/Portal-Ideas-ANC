@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FiAlertCircle, FiCheckCircle, FiClipboard, FiFileText, FiPlus, FiUserCheck, FiUsers } from 'react-icons/fi'
 import { listarIdeas } from '../ideas/api'
+import IdeasEnCurso from '../ideas/components/IdeasEnCurso'
 import { misRevisiones, revisionesSinAsignar } from '../revision/api'
 import { colaComite } from '../comites/api'
 import { useUsuarioActual } from '../core/UsuarioActualContext'
@@ -18,6 +19,10 @@ function diasDesde(iso: string): number {
 interface DatosPersona {
   // colaborador
   borradorPropio: Idea | null
+  // Ideas propias ya enviadas, para las tarjetas de "Tus ideas en curso".
+  // Vienen SIN filtrar por estado_flow: el filtro de "activa" lo aplica
+  // IdeasEnCurso, que es quien conoce el criterio.
+  ideasEnviadas: Idea[]
   // encargado_area / gerente (también puede revisar)
   misPendientesRevisar: number
 }
@@ -47,15 +52,21 @@ function useDatosPersona(
     // admin devuelve TODAS las pendientes del sistema (ver revision/router.py),
     // ese dato ya se muestra agregado en el dashboard de sistema, no como
     // "tenés N pendientes" (sería engañoso — no son necesariamente suyas).
-    const pedirBorrador = rol === 'colaborador' ? listarIdeas({ estado: 'borrador' }) : Promise.resolve([])
+    const esColaborador = rol === 'colaborador'
+    const pedirBorrador = esColaborador ? listarIdeas({ estado: 'borrador' }) : Promise.resolve([])
+    // Las enviadas traen estado_flow (ver ideas/schemas.py:IdeaOut) — es lo
+    // que necesita IdeasEnCurso para filtrar y pintar la barra. Solo se piden
+    // para colaborador: los demás roles ya tienen el dashboard de sistema.
+    const pedirEnviadas = esColaborador ? listarIdeas({ estado: 'enviada' }) : Promise.resolve([])
     const pedirRevisiones =
       rol !== 'admin' && esRevisorElegible ? misRevisiones() : Promise.resolve([])
 
-    Promise.all([pedirBorrador, pedirRevisiones])
-      .then(([borradores, revisiones]) => {
+    Promise.all([pedirBorrador, pedirEnviadas, pedirRevisiones])
+      .then(([borradores, enviadas, revisiones]) => {
         if (cancelado) return
         setDatos({
           borradorPropio: borradores[0] ?? null,
+          ideasEnviadas: enviadas,
           misPendientesRevisar: revisiones.length,
         })
       })
@@ -197,6 +208,11 @@ export default function PaginaInicio() {
           </span>
         </div>
       )}
+
+      {/* Después de los dos avisos accionables (borrador sin terminar,
+          revisiones pendientes) y antes de los botones grandes: esto es
+          informativo, no algo que haya que atender ya. */}
+      {datosPersona && <IdeasEnCurso ideas={datosPersona.ideasEnviadas} />}
 
       <div className={`inicio-botones-grandes ${sinNadaEspecial ? '' : 'inicio-botones-discretos'}`}>
         <button className="inicio-boton-grande" onClick={() => navigate('/ideas/nueva')}>

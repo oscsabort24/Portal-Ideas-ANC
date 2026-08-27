@@ -100,3 +100,62 @@ export const ACCION_POR_ESTADO: Partial<Record<EstadoFlow, string>> = {
   comite_rechazada: 'El comité no aprobó esta idea.',
   documentos_completos: 'Los 6 documentos formales están listos para descargar.',
 }
+
+/**
+ * Porcentaje de avance que se le muestra al colaborador en la página de
+ * inicio ("Tus ideas en curso").
+ *
+ * POR ESTADO, no derivado de `paso`. La fórmula obvia —(paso / 5) * 100—
+ * falla porque los pasos agrupan varios estados: el paso 5 contiene
+ * `comite_aprobada_sin_documentos`, `documentos_en_generacion` y
+ * `documentos_completos`, así que los tres darían 100%. Los dos primeros NO
+ * están terminados, y son justo los visibles (el 100% real queda filtrado
+ * por ser terminal). Le diría al autor "tu idea está al 100%" con los
+ * documentos todavía sin generar.
+ *
+ * Tres propiedades que la tabla garantiza y la fórmula no:
+ *   - es monótona;
+ *   - nada llega a 100% sin estar terminado;
+ *   - `revision_cambios_solicitados` NO retrocede la barra — la idea nunca
+ *     salió del paso 2, el ida y vuelta ocurre DENTRO del paso (mismo
+ *     criterio que el stepper).
+ *
+ * Los números son un juicio, no una medición: no pretenden ser
+ * proporcionales al tiempo real de cada etapa, solo dar una sensación
+ * honesta de avance.
+ */
+export const PORCENTAJE_POR_ESTADO: Record<EstadoFlow, number> = {
+  borrador: 0,
+  revision_pendiente_asignacion: 15,
+  revision_en_curso: 30,
+  revision_cambios_solicitados: 30,
+  revision_rechazada: 30, // terminal negativo: no se muestra en "en curso"
+  clasificacion_pendiente: 50,
+  comite_en_cola: 65,
+  comite_rechazada: 65, // terminal negativo: no se muestra en "en curso"
+  comite_aprobada_sin_documentos: 85,
+  documentos_en_generacion: 95,
+  documentos_completos: 100,
+}
+
+/**
+ * Estados en los que la idea sigue viva en el proceso.
+ *
+ * Excluye los tres terminales: `documentos_completos` (positivo),
+ * `revision_rechazada` y `comite_rechazada` (negativos). `borrador` también
+ * queda afuera acá porque la página de inicio ya lo cubre con su propio
+ * aviso de "idea sin terminar", que lleva a continuar la entrevista.
+ */
+export const ESTADOS_ACTIVOS: ReadonlySet<EstadoFlow> = new Set<EstadoFlow>([
+  'revision_pendiente_asignacion',
+  'revision_en_curso',
+  'revision_cambios_solicitados',
+  'clasificacion_pendiente',
+  'comite_en_cola',
+  'comite_aprobada_sin_documentos',
+  'documentos_en_generacion',
+])
+
+export function esEstadoActivo(estado: EstadoFlow | null): boolean {
+  return estado !== null && ESTADOS_ACTIVOS.has(estado)
+}
