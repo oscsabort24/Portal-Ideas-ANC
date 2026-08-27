@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FiBell } from 'react-icons/fi'
+import { FiAlertTriangle, FiBell } from 'react-icons/fi'
 import { listarUsuarios } from '../../usuarios/api'
 import type { Usuario } from '../../usuarios/types'
 import { listarHistorial, obtenerConfig, revisarVencidas } from '../api'
@@ -56,11 +56,34 @@ export default function NotificacionesView() {
 
   if (cargando) return <p>Cargando...</p>
 
+  // Mismo criterio que el filtro del backend: una etapa sin plazo_dias no
+  // participa del barrido. Si ninguna lo tiene, el barrido es inerte.
+  const sinPlazosConfigurados = configs.length > 0 && configs.every((c) => c.plazo_dias === null)
+
   return (
     <div>
       <h1 className="page-title">Notificaciones</h1>
 
       {error && <p className="form-error">{error}</p>}
+
+      {/* Sin plazos configurados, el barrido no genera NADA: el backend filtra
+          por plazo_dias IS NOT NULL (notificaciones/router.py:revisar), así
+          que itera sobre cero configuraciones y termina. Sin este aviso, el
+          admin toca "Revisar vencidas ahora", ve "0 generadas" y concluye que
+          no hay nada vencido — cuando en realidad el sistema nunca miró. */}
+      {sinPlazosConfigurados && (
+        <div className="aviso-sin-plazos">
+          <FiAlertTriangle className="aviso-sin-plazos-icono" />
+          <div>
+            <strong>Este barrido todavía no revisa nada.</strong>
+            <p>
+              Ninguna etapa tiene un plazo configurado, así que «Revisar vencidas ahora» va a
+              devolver 0 notificaciones aunque haya ideas detenidas hace semanas. Poné un plazo en
+              al menos una etapa acá abajo para que empiece a detectarlas.
+            </p>
+          </div>
+        </div>
+      )}
 
       <h2 style={{ fontSize: 16, fontWeight: 600, margin: '20px 0 12px' }}>Configuración por etapa</h2>
       <div className="tabla-personas" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
