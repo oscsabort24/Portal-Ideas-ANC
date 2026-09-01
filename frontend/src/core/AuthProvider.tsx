@@ -1,10 +1,10 @@
 import { MsalProvider, useMsal } from '@azure/msal-react'
 import { PublicClientApplication } from '@azure/msal-browser'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import OnboardingPerfil from '../usuarios/components/OnboardingPerfil'
 import { obtenerUsuarioPorCorreo } from '../usuarios/api'
 import type { Usuario } from '../usuarios/types'
-import { azureAdConfigurado, msalConfig } from './authConfig'
+import { azureAdConfigurado, loginRequest, msalConfig } from './authConfig'
 import LoginScreen from './LoginScreen'
 import {
   UsuarioActualContext,
@@ -23,10 +23,17 @@ function esNoEncontrado(err: unknown): boolean {
   return err instanceof Error && err.message.includes('No existe un usuario con ese correo')
 }
 
-type EstadoResolucion = 'no_autenticado' | 'verificando' | 'onboarding' | 'listo'
+type EstadoResolucion = 'no_autenticado' | 'verificando' | 'onboarding' | 'listo' | 'error_sesion'
+
+// Techo duro para el estado 'verificando'. El catch de abajo ya cubre los
+// errores que llegan como promesa rechazada, pero una promesa que NUNCA
+// resuelve (ej. el iframe oculto de renovación silenciosa de MSAL esperando
+// una respuesta que no va a llegar) no la agarra ningún catch. Esto garantiza
+// que el loader no pueda quedarse colgado indefinidamente, sea cual sea la causa.
+const TIMEOUT_VERIFICANDO_MS = 20_000
 
 /**
- * Máquina de 4 estados que decide qué pantalla completa mostrar antes de
+ * Máquina de 5 estados que decide qué pantalla completa mostrar antes de
  * dejar entrar a la app real (sidebar + rutas):
  *
  * - no_autenticado: no hay ninguna cuenta MSAL activa -> LoginScreen
@@ -36,13 +43,17 @@ type EstadoResolucion = 'no_autenticado' | 'verificando' | 'onboarding' | 'listo
  * - onboarding: la cuenta MSAL no tiene Usuario todavía en nuestra BD
  *   (404) -> OnboardingPerfil
  * - listo: usuario real resuelto -> children (la app normal)
+ * - error_sesion: la resolución falló por algo que no es un 404, o se pasó de
+ *   TIMEOUT_VERIFICANDO_MS -> pantalla con Reintentar / Limpiar sesión
  */
 function ResolverUsuarioMsal({ children }: { children: ReactNode }) {
-  const { accounts } = useMsal()
+  const { accounts, instance } = useMsal()
   const cuenta = accounts[0]
 
   const [estado, setEstado] = useState<EstadoResolucion>(cuenta ? 'verificando' : 'no_autenticado')
   const [usuarioReal, setUsuarioReal] = useState<Usuario | null>(null)
+  // Lo incrementa el botón "Reintentar" para volver a disparar el efecto.
+  const [intento, setIntento] = useState(0)
 
   useEffect(() => {
     if (!cuenta) {
@@ -53,6 +64,10 @@ function ResolverUsuarioMsal({ children }: { children: ReactNode }) {
     setEstado('verificando')
     let cancelado = false
     const correo = cuenta.username
+
+    const watchdog = setTimeout(() => {
+      if (!cancelado) setEstado('error_sesion')
+    }, TIMEOUT_VERIFICANDO_MS)
 
     obtenerUsuarioPorCorreo(correo)
       .then((usuario) => {
@@ -65,24 +80,38 @@ function ResolverUsuarioMsal({ children }: { children: ReactNode }) {
         if (cancelado) return
         if (esNoEncontrado(err)) {
           setEstado('onboarding')
-        } else {
-          // Fallo de red u otro error inesperado: no hay forma segura de
-          // continuar sin saber quién es el usuario real, así que se
-          // mantiene en "verificando" — el usuario puede reintentar
-          // recargando la página.
-          console.error('No se pudo resolver el usuario actual:', err)
+          return
         }
+        // Antes esta rama se quedaba muda (solo console.error) y el estado
+        // seguía en 'verificando' para siempre: el loader "Verificando tu
+        // cuenta..." no tenía NINGUNA condición de salida ante error. Con una
+        // caché de MSAL corrupta recargar tampoco ayudaba, porque esa caché
+        // vive en localStorage y reproducía el mismo fallo en cada carga.
+        console.error('No se pudo resolver el usuario actual:', err)
+        setEstado('error_sesion')
       })
     return () => {
       cancelado = true
+      clearTimeout(watchdog)
     }
-  }, [cuenta])
+  }, [cuenta, intento])
 
   function handleOnboardingCompletado(usuario: Usuario) {
     actualizarUsuarioActual(usuario)
     setUsuarioReal(usuario)
     setEstado('listo')
   }
+
+  // Barato: solo vuelve a resolver el usuario, sin costarle el login a nadie.
+  // Alcanza para un fallo de red pasajero.
+  const reintentar = useCallback(() => setIntento((n) => n + 1), [])
+
+  // Caro pero definitivo: equivalente programático de "borrar cookies y datos
+  // de sitio", que es lo único que cura una caché de MSAL corrupta.
+  const limpiarSesion = useCallback(async () => {
+    await instance.clearCache()
+    await instance.loginRedirect(loginRequest)
+  }, [instance])
 
   if (estado === 'no_autenticado') {
     return <LoginScreen />
@@ -92,6 +121,28 @@ function ResolverUsuarioMsal({ children }: { children: ReactNode }) {
     return (
       <div className="onboarding-shell">
         <p>Verificando tu cuenta...</p>
+      </div>
+    )
+  }
+
+  if (estado === 'error_sesion') {
+    return (
+      <div className="onboarding-shell">
+        <div className="form-card">
+          <h2>No pudimos verificar tu cuenta</h2>
+          <p>
+            Puede ser un problema temporal de conexión, o que los datos de tu sesión de
+            Microsoft hayan quedado en mal estado en este navegador.
+          </p>
+          <div className="error-sesion-acciones">
+            <button className="btn-primary" onClick={reintentar}>
+              Reintentar
+            </button>
+            <button className="btn-secundario" onClick={limpiarSesion}>
+              Limpiar sesión e iniciar de nuevo
+            </button>
+          </div>
+        </div>
       </div>
     )
   }
